@@ -28,7 +28,7 @@ CROSSTAB_MIN_HISTORY = 3
 
 # Dimension สำหรับ Full Audit (Rolling Window)
 AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER"]
-AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY", "COST_CENTER"]
+AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY"]
 AUDIT_TS_WINDOW = 6
 
 # Dimension สำหรับ Peer Group
@@ -101,6 +101,22 @@ def main():
             dimensions=AUDIT_TS_DIMENSIONS,
             window=AUDIT_TS_WINDOW
         )
+        # ✅ กรองเฉพาะปัญหาสำคัญ
+        if not df_ts_log.empty:
+            # เอาเฉพาะ Critical
+            df_ts_log = df_ts_log[
+                df_ts_log['ISSUE_DESC'].isin([
+                    'High_Spike', 'Low_Spike', 'Negative_Value'
+                ])
+            ].copy()
+            print(f"   ✓ Filtered to {len(df_ts_log)} critical anomalies for highlighting")
+
+        # 🔍 DEBUG: แสดง anomalies ทั้งหมด
+        '''print("\n📊 DEBUG: Anomaly Details:")
+        for idx, row in df_ts_log.iterrows():
+            print(f"  - {row[DATE_COL_NAME].strftime('%Y-%m')}: "
+                f"{row['PRODUCT_KEY']} = {row[TARGET_COL]:,.2f} "
+                f"[{row['ISSUE_DESC']}]")'''
         # 3.2 Peer Group (IsolationForest)
         # df_peer_log = full_audit_gen.audit_peer_group_all_months(
         #     target_col=TARGET_COL,
