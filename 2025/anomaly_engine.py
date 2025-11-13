@@ -37,7 +37,7 @@ class CrosstabGenerator:
         return final_report.reset_index()
 
     def _get_status_helper(self, row_series, min_history):
-        """Helper: ตรวจสอบสถานะ 7 แบบ (ใช้ร่วมกัน)"""
+        """Helper: ตรวจสอบสถานะ 7 แบบ (ปรับปรุงใหม่: ใส่ Threshold กัน Sensitive เกินไป)"""
         latest_val = row_series.iloc[-1]
         history = row_series.iloc[:-1]
         
@@ -48,9 +48,21 @@ class CrosstabGenerator:
             return ("New_Item" if latest_val > 0 else "Not_Enough_Data"), latest_val, 0
         
         avg_historical = history_clean.mean()
+        
+        # --- ส่วนที่เพิ่ม Logic เพื่อแก้ปัญหา ---
+        # คำนวณ % การเปลี่ยนแปลงเทียบกับค่าเฉลี่ย
+        if avg_historical == 0: pct_change = 0
+        else: pct_change = abs((latest_val - avg_historical) / avg_historical)
+        
+        # 1. ถ้าเปลี่ยนน้อยกว่า 10% (0.10) ให้ปล่อยผ่านเป็น Normal เลย (แก้ปัญหาแดงทั้งกระดาน)
+        if pct_change < 0.10: 
+             return "Normal", latest_val, avg_historical
+        # ------------------------------------
+
         Q1, Q3 = history_clean.quantile(0.25), history_clean.quantile(0.75)
         IQR = Q3 - Q1
         
+        # Logic เดิม...
         if IQR == 0:
             if Q1 == 0 and latest_val > 0: return "High_Spike", latest_val, avg_historical
             if latest_val != Q1: return "Spike_vs_Constant", latest_val, avg_historical
