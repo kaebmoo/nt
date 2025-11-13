@@ -23,33 +23,45 @@ RUN_FULL_AUDIT_LOG = True
 
 # Dimension สำหรับ Crosstab Report
 CROSSTAB_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE"]
+CROSSTAB_DIMENSIONS = ["PRODUCT_KEY"]
 CROSSTAB_MIN_HISTORY = 3
 
 # Dimension สำหรับ Full Audit (Rolling Window)
 AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER"]
-AUDIT_TS_WINDOW = 3
+AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY", "COST_CENTER"]
+AUDIT_TS_WINDOW = 6
 
 # Dimension สำหรับ Peer Group
 AUDIT_PEER_GROUP_BY = ["PRODUCT_KEY", "GL_CODE"]
+AUDIT_PEER_GROUP_BY = ["PRODUCT_KEY"]
 AUDIT_PEER_ITEM_ID  = "COST_CENTER"
 
 # =============================================================================
 
 def prepare_data(df):
-    """ฟังก์ชันเตรียมข้อมูล: รวมวันที่ และจัดการค่าว่าง"""
     print("   running: Data Preprocessing...")
     try:
+        # 1. สร้าง Column วันที่
         df[DATE_COL_NAME] = pd.to_datetime(
             df[COL_YEAR].astype(str) + '-' + 
             df[COL_MONTH].astype(int).astype(str).str.zfill(2) + '-01'
         )
-        print(f"   ✓ Created date column: {DATE_COL_NAME}")
+        
+        # 2. แปลงตัวเลข (รองรับทั้งแบบมี Comma และไม่มี)
+        # แปลงเป็น String ก่อน -> ลบ Comma -> แปลงเป็น Numeric
+        if df[TARGET_COL].dtype == 'object':
+            df[TARGET_COL] = df[TARGET_COL].astype(str).str.replace(',', '', regex=False)
+            
+        df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors='coerce').fillna(0)
+        
+        print(f"   ✓ Created date & converted numeric.")
     except Exception as e:
-        print(f"   ❌ Error creating date: {e}"); return None
+        print(f"   ❌ Error: {e}"); return None
 
+    # 3. เติมค่าว่าง Dimension
     all_dims = set(CROSSTAB_DIMENSIONS + AUDIT_TS_DIMENSIONS + AUDIT_PEER_GROUP_BY + [AUDIT_PEER_ITEM_ID])
     for col in all_dims:
-        if col in df.columns and df[col].isnull().any():
+        if col in df.columns:
             df[col] = df[col].fillna('N/A')
     
     print("   ✓ Preprocessing complete.")
@@ -90,19 +102,13 @@ def main():
             window=AUDIT_TS_WINDOW
         )
         # 3.2 Peer Group (IsolationForest)
-        df_peer_log = full_audit_gen.audit_peer_group_all_months(
-            target_col=TARGET_COL,
-            date_col=DATE_COL_NAME,
-            group_dims=AUDIT_PEER_GROUP_BY,
-            item_id_col=AUDIT_PEER_ITEM_ID
-        )
+        # df_peer_log = full_audit_gen.audit_peer_group_all_months(
+        #     target_col=TARGET_COL,
+        #     date_col=DATE_COL_NAME,
+        #     group_dims=AUDIT_PEER_GROUP_BY,
+        #     item_id_col=AUDIT_PEER_ITEM_ID
+        # )
         
-        # เพิ่ม Log ลง Excel (Sheet 2, 3)
-        if RUN_FULL_AUDIT_LOG:
-            reporter.add_audit_log_sheet(df_ts_log, "Full_Audit_Log (Time)",
-                cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_TS_DIMENSIONS)
-            reporter.add_audit_log_sheet(df_peer_log, "Full_Audit_Log (Peer)",
-                cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_PEER_GROUP_BY + [AUDIT_PEER_ITEM_ID])
 
     # 4. รัน Crosstab Report (Sheet 1)
     if RUN_CROSSTAB_REPORT:
@@ -123,6 +129,12 @@ def main():
             date_col_name=DATE_COL_NAME,
             date_cols_sorted=crosstab_gen.date_cols_sorted
         )
+    # เพิ่ม Log ลง Excel (Sheet 2, 3)
+    if RUN_FULL_AUDIT_LOG:
+        reporter.add_audit_log_sheet(df_ts_log, "Full_Audit_Log (Time)",
+            cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_TS_DIMENSIONS)
+        # reporter.add_audit_log_sheet(df_peer_log, "Full_Audit_Log (Peer)",
+        #     cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_PEER_GROUP_BY + [AUDIT_PEER_ITEM_ID])
 
     # 5. Save Final Report
     reporter.save()
