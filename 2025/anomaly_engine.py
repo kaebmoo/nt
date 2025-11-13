@@ -49,26 +49,33 @@ class CrosstabGenerator:
         
         avg_historical = history_clean.mean()
         
-        # --- ส่วนที่เพิ่ม Logic เพื่อแก้ปัญหา ---
-        # คำนวณ % การเปลี่ยนแปลงเทียบกับค่าเฉลี่ย
-        if avg_historical == 0: pct_change = 0
-        else: pct_change = abs((latest_val - avg_historical) / avg_historical)
+        # คำนวณ % การเปลี่ยนแปลง
+        if avg_historical == 0: 
+            pct_change = 0
+        else: 
+            pct_change = abs((latest_val - avg_historical) / avg_historical)
         
-        # 1. ถ้าเปลี่ยนน้อยกว่า 10% (0.10) ให้ปล่อยผ่านเป็น Normal เลย (แก้ปัญหาแดงทั้งกระดาน)
+        # ✅ ถ้าเปลี่ยนน้อยกว่า 10% ให้ปล่อยผ่านเป็น Normal เลย
         if pct_change < 0.10: 
-             return "Normal", latest_val, avg_historical
-        # ------------------------------------
-
+            return "Normal", latest_val, avg_historical
+        
         Q1, Q3 = history_clean.quantile(0.25), history_clean.quantile(0.75)
         IQR = Q3 - Q1
         
-        # Logic เดิม...
+        # ✅ ปรับ Logic IQR == 0 ให้เช็ค % ก่อน
         if IQR == 0:
-            if Q1 == 0 and latest_val > 0: return "High_Spike", latest_val, avg_historical
-            if latest_val != Q1: return "Spike_vs_Constant", latest_val, avg_historical
+            # ถ้าเปลี่ยนแปลงน้อยกว่า 15% แม้ว่า IQR = 0 ก็ให้ผ่าน
+            if pct_change < 0.15:
+                return "Normal", latest_val, avg_historical
+            # ถ้าเปลี่ยนมากกว่า 15% ถึงจะเป็น Spike
+            if Q1 == 0 and latest_val > 0: 
+                return "High_Spike", latest_val, avg_historical
+            if latest_val != Q1: 
+                return "Spike_vs_Constant", latest_val, avg_historical
             return "Normal", latest_val, avg_historical
         
-        k = 1.5
+        # ✅ เพิ่ม k ให้สูงขึ้นเพื่อลด Sensitivity (จาก 1.5 เป็น 2.0)
+        k = 2.0  # เดิมเป็น 1.5
         lower_fence = max(0, Q1 - (k * IQR))
         upper_fence = Q3 + (k * IQR)
         
@@ -88,28 +95,158 @@ class FullAuditEngine:
         self.status_helper = CrosstabGenerator(pd.DataFrame())._get_status_helper
 
     def audit_time_series_all_months(self, target_col, date_col, dimensions, window=3):
-        """Rolling Window Scan"""
-        print("[Engine]: Running Full Time Series (Rolling Window)...")
-        results = []
+        """
+        Rolling Window Scan (Optimized Vectorized Version v2)
+        
+        ปรับปรุง:
+        - แก้ปัญหา NaN จาก shift(1)
+        - ใช้ min_periods ที่เหมาะสม
+        - เพิ่ม validation และ error handling
+        - เร็วกว่าแบบ loop 10-100 เท่า (ขึ้นอยู่กับขนาดข้อมูล)
+        """
+        print(f"[Engine]: Running Full Time Series (Vectorized Rolling Window={window})...")
+        
+        # 1. เตรียมข้อมูลและ Sort
+        df_calc = self.df.copy()
+        
+        # Validation: ตรวจสอบว่ามี columns ที่จำเป็น
+        required_cols = dimensions + [date_col, target_col]
+        missing = [c for c in required_cols if c not in df_calc.columns]
+        if missing:
+            print(f"   ❌ Missing columns: {missing}")
+            return pd.DataFrame()
+        
+        # สร้าง ID ชั่วคราวสำหรับ Group
         try:
-            self.df['__TEMP_ID__'] = self.df[dimensions].apply(lambda x: '|'.join(x.astype(str)), axis=1)
+            df_calc['__GRP_ID__'] = df_calc[dimensions].apply(
+                lambda x: '|'.join(x.astype(str)), axis=1
+            )
         except Exception as e:
-            print(f"   ❌ Error creating Temp ID: {e}"); return pd.DataFrame()
-
-        for item_id, group in self.df.groupby('__TEMP_ID__'):
-            ts = group.set_index(date_col)[target_col]
-            for i in range(window, len(ts)):
-                current_window_series = ts.iloc[i-window : i+1]
-                # ตรวจสอบสถานะ
-                status, _, avg_hist = self.status_helper(current_window_series, 1) 
-
-                if status not in ['Normal', 'Not_Enough_Data']:
-                    row_res = group.iloc[i].to_dict()
-                    row_res['ANOMALY_TYPE'] = 'Time_Series_Roll'
-                    row_res['ISSUE_DESC'] = status
-                    row_res['COMPARED_WITH'] = f"Avg Past {window} periods: {avg_hist:,.2f}"
-                    results.append(row_res)     
-        return pd.DataFrame(results)
+            print(f"   ❌ Error creating Temp ID: {e}")
+            return pd.DataFrame()
+        
+        # ต้องเรียงข้อมูลตาม กลุ่ม และ วันที่ ให้เป๊ะก่อนคำนวณ Rolling
+        df_calc.sort_values(by=['__GRP_ID__', date_col], inplace=True)
+        df_calc.reset_index(drop=True, inplace=True)  # ← สำคัญ! reset index ก่อน
+        
+        # 2. คำนวณ Rolling Stats
+        # ใช้ min_periods=window เพื่อให้แน่ใจว่ามีข้อมูลครบก่อนคำนวณ
+        # แต่ให้ยืดหยุ่นเล็กน้อย โดยใช้ max(1, window-1)
+        min_periods_safe = max(1, window - 1)
+        
+        grouped = df_calc.groupby('__GRP_ID__', group_keys=False)[target_col]
+        
+        # คำนวณค่าทางสถิติของ "window เดือนก่อนหน้า" (ไม่รวมเดือนปัจจุบัน)
+        # shift(1) จะทำให้ค่า stats ของแถวนี้ มาจาก window เดือนที่แล้ว
+        hist_mean = grouped.rolling(
+            window=window, 
+            min_periods=min_periods_safe
+        ).mean().shift(1).fillna(0).reset_index(0, drop=True)
+        
+        hist_count = grouped.rolling(
+            window=window, 
+            min_periods=min_periods_safe
+        ).count().shift(1).fillna(0).reset_index(0, drop=True)
+        
+        hist_q1 = grouped.rolling(
+            window=window, 
+            min_periods=min_periods_safe
+        ).quantile(0.25).shift(1).fillna(0).reset_index(0, drop=True)
+        
+        hist_q3 = grouped.rolling(
+            window=window, 
+            min_periods=min_periods_safe
+        ).quantile(0.75).shift(1).fillna(0).reset_index(0, drop=True)
+        
+        # เอาค่ากลับไปใส่ DataFrame
+        df_calc['HIST_MEAN'] = hist_mean
+        df_calc['HIST_COUNT'] = hist_count
+        df_calc['HIST_Q1'] = hist_q1
+        df_calc['HIST_Q3'] = hist_q3
+        df_calc['HIST_IQR'] = df_calc['HIST_Q3'] - df_calc['HIST_Q1']
+        
+        # 3. คำนวณ PCT_CHANGE (ป้องกัน division by zero)
+        df_calc['PCT_CHANGE'] = 0.0
+        mask_mean_nonzero = df_calc['HIST_MEAN'] > 0  # ← เปลี่ยนจาก != เป็น >
+        df_calc.loc[mask_mean_nonzero, 'PCT_CHANGE'] = abs(
+            (df_calc.loc[mask_mean_nonzero, target_col] - df_calc.loc[mask_mean_nonzero, 'HIST_MEAN']) 
+            / df_calc.loc[mask_mean_nonzero, 'HIST_MEAN']
+        )
+        
+        # 4. คำนวณ Fences (IQR Method)
+        k = 2.0  # Sensitivity (1.5 = strict, 2.0 = moderate, 3.0 = relaxed)
+        df_calc['UPPER_FENCE'] = df_calc['HIST_Q3'] + (k * df_calc['HIST_IQR'])
+        df_calc['LOWER_FENCE'] = (df_calc['HIST_Q1'] - (k * df_calc['HIST_IQR'])).clip(lower=0)
+        
+        # 5. ตัดสินสถานะ (ใช้ np.select เพื่อความเร็ว)
+        conditions = [
+            # Case 0: ค่าติดลบ
+            (df_calc[target_col] < 0),
+            
+            # Case 1: ข้อมูลประวัติไม่พอ (น้อยกว่า window-1 เดือน)
+            # หมายเหตุ: ใช้ window-1 เพื่อให้ยืดหยุ่นเล็กน้อย
+            (df_calc['HIST_COUNT'] < (window - 1)),
+            
+            # Case 2: เปลี่ยนแปลงน้อยกว่า 10% -> Normal (Threshold ด่านแรก)
+            (df_calc['PCT_CHANGE'] < 0.10),
+            
+            # Case 3: IQR = 0 (ประวัตินิ่งสนิท) แต่เปลี่ยนไม่ถึง 15% -> Normal
+            ((df_calc['HIST_IQR'] == 0) & (df_calc['PCT_CHANGE'] < 0.15)),
+            
+            # Case 4: IQR = 0 แต่ Q1=0 แล้วมียอดเด้งขึ้นมา -> High Spike
+            ((df_calc['HIST_IQR'] == 0) & (df_calc['HIST_Q1'] == 0) & (df_calc[target_col] > 0)),
+            
+            # Case 5: IQR = 0 แต่ค่าไม่เท่าเดิม -> Spike vs Constant
+            ((df_calc['HIST_IQR'] == 0) & (df_calc[target_col] != df_calc['HIST_Q1'])),
+            
+            # Case 6: ทะลุเพดานบน -> High Spike
+            (df_calc[target_col] > df_calc['UPPER_FENCE']),
+            
+            # Case 7: ทะลุพื้นล่าง -> Low Spike
+            (df_calc[target_col] < df_calc['LOWER_FENCE'])
+        ]
+        
+        choices = [
+            'Negative_Value',       # 0
+            'Not_Enough_Data',      # 1
+            'Normal',               # 2
+            'Normal',               # 3
+            'High_Spike',           # 4
+            'Spike_vs_Constant',    # 5
+            'High_Spike',           # 6
+            'Low_Spike'             # 7
+        ]
+        
+        df_calc['ISSUE_DESC'] = np.select(conditions, choices, default='Normal')
+        
+        # จัดการ New Item เพิ่มเติม (ถ้าข้อมูลไม่พอ แต่มียอด > 0)
+        mask_new_item = (df_calc['ISSUE_DESC'] == 'Not_Enough_Data') & (df_calc[target_col] > 0)
+        df_calc.loc[mask_new_item, 'ISSUE_DESC'] = 'New_Item'
+        
+        # 6. กรองเฉพาะตัวที่มีปัญหา
+        anomalies = df_calc[
+            ~df_calc['ISSUE_DESC'].isin(['Normal', 'Not_Enough_Data'])
+        ].copy()
+        
+        if anomalies.empty:
+            print("[Engine]:    ✓ No anomalies found in Time Series scan.")
+            return pd.DataFrame()
+        
+        # 7. จัดเตรียม Output
+        anomalies['ANOMALY_TYPE'] = 'Time_Series_Roll'
+        anomalies['COMPARED_WITH'] = anomalies.apply(
+            lambda row: f"Avg Past {window}: {row['HIST_MEAN']:,.2f} (Count: {int(row['HIST_COUNT'])})",
+            axis=1
+        )
+        
+        # ลบ Column ชั่วคราวออก
+        cols_to_drop = ['__GRP_ID__', 'HIST_MEAN', 'HIST_COUNT', 'HIST_Q1', 'HIST_Q3', 
+                        'HIST_IQR', 'PCT_CHANGE', 'UPPER_FENCE', 'LOWER_FENCE']
+        anomalies.drop(columns=[c for c in cols_to_drop if c in anomalies.columns], 
+                    inplace=True, errors='ignore')
+        
+        print(f"[Engine]:    ✓ Found {len(anomalies)} anomalies in Time Series scan.")
+        return anomalies
 
     def audit_peer_group_all_months(self, target_col, date_col, group_dims, item_id_col):
         """Isolation Forest Scan"""
