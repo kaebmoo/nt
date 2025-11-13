@@ -121,7 +121,7 @@ class ExcelReporter:
         """สร้างตารางคำอธิบายสี (Legend) ต่อท้ายข้อมูล"""
         start_row = ws.max_row + 4
         
-        cell_header = ws.cell(row=start_row, column=2, value="คำอธิบายความหมายสี (Color Legend)")
+        cell_header = ws.cell(row=start_row, column=3, value="คำอธิบายความหมายสี (Color Legend)")
         cell_header.font = self.font_bold
         
         legend_data = [
@@ -133,13 +133,13 @@ class ExcelReporter:
         for i, (key, desc) in enumerate(legend_data):
             r = start_row + 1 + i
             
-            c_color = ws.cell(row=r, column=2, value="     ")
+            c_color = ws.cell(row=r, column=3, value="     ")
             if key in self.styles:
                 c_color.fill = self.styles[key]
                 if key == "Negative_Value": 
                     c_color.font = self.font_negative
             
-            c_desc = ws.cell(row=r, column=3, value=desc)
+            c_desc = ws.cell(row=r, column=4, value=desc)
             c_desc.alignment = Alignment(horizontal='left')
 
         print(f"[Reporter]:    ✓ Added Color Legend at row {start_row}")
