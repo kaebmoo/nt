@@ -9,12 +9,12 @@ from anomaly_reporter import ExcelReporter
 # ⚙️ USER CONFIGURATION
 # =============================================================================
 
-INPUT_FILE = "/Users/seal/Documents/GitHub/nt/2025/data/revenue_mapped_product_2025_.csv"  # <-- เปลี่ยนชื่อไฟล์ข้อมูลของคุณที่นี่
-OUTPUT_FILE = "Final_Audit_Report.xlsx"
+INPUT_FILE = "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource/2025/expense/output/EXPENSE_NT_REPORT_2025.csv"  # <-- เปลี่ยนชื่อไฟล์ข้อมูลของคุณที่นี่
+OUTPUT_FILE = "Expense_Audit_Report.xlsx"
 
 COL_YEAR = "YEAR"
 COL_MONTH = "MONTH"
-TARGET_COL = "REVENUE_VALUE"
+TARGET_COL = "EXPENSE_VALUE"
 DATE_COL_NAME = "__date_col__" 
 
 # --- Configs ---
@@ -23,17 +23,17 @@ RUN_FULL_AUDIT_LOG = True
 
 # Dimension สำหรับ Crosstab Report
 # CROSSTAB_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE"]
-CROSSTAB_DIMENSIONS = ["PRODUCT_KEY"]
+CROSSTAB_DIMENSIONS = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]
 CROSSTAB_MIN_HISTORY = 3
 
 # Dimension สำหรับ Full Audit (Rolling Window)
 # AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER"]
-AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY"]
+AUDIT_TS_DIMENSIONS = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]
 AUDIT_TS_WINDOW = 6
 
 # Dimension สำหรับ Peer Group
 # AUDIT_PEER_GROUP_BY = ["PRODUCT_KEY", "GL_CODE"]
-AUDIT_PEER_GROUP_BY = ["PRODUCT_KEY"]
+AUDIT_PEER_GROUP_BY = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]
 AUDIT_PEER_ITEM_ID  = "COST_CENTER"
 
 # =============================================================================

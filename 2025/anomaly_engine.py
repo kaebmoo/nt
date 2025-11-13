@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
+K = 2.0  # Sensitivity parameter for IQR method
 class CrosstabGenerator:
     """Class นี้สร้าง 'Crosstab Report' (สถานะเดือนล่าสุด)"""
     def __init__(self, df, min_history=3):
@@ -75,7 +76,7 @@ class CrosstabGenerator:
             return "Normal", latest_val, avg_historical
         
         # ✅ เพิ่ม k ให้สูงขึ้นเพื่อลด Sensitivity (จาก 1.5 เป็น 2.0)
-        k = 2.0  # เดิมเป็น 1.5
+        k = K  # เดิมเป็น 1.5
         lower_fence = max(0, Q1 - (k * IQR))
         upper_fence = Q3 + (k * IQR)
         
@@ -97,17 +98,16 @@ class FullAuditEngine:
     def audit_time_series_all_months(self, target_col, date_col, dimensions, window=3):
         """
         Rolling Window Scan (Optimized Vectorized Version v2)
-        
-        ปรับปรุง:
-        - แก้ปัญหา NaN จาก shift(1)
-        - ใช้ min_periods ที่เหมาะสม
-        - เพิ่ม validation และ error handling
-        - เร็วกว่าแบบ loop 10-100 เท่า (ขึ้นอยู่กับขนาดข้อมูล)
+        * Update: เพิ่มการ Group By เพื่อตรวจสอบยอดรวมรายเดือน (แก้ปัญหา Transaction ย่อย)
         """
         print(f"[Engine]: Running Full Time Series (Vectorized Rolling Window={window})...")
         
-        # 1. เตรียมข้อมูลและ Sort
-        df_calc = self.df.copy()
+        # 1. เตรียมข้อมูล 
+        # ❌ ลบอันเก่า: df_calc = self.df.copy()
+        
+        # ✅ ใช้อันใหม่: ยุบรวมยอดขายรายเดือนก่อนเริ่มคำนวณ
+        # เพื่อให้ Engine มองเห็นยอด Net ของเดือนนั้นจริงๆ
+        df_calc = self.df.groupby(dimensions + [date_col])[target_col].sum().reset_index()
         
         # Validation: ตรวจสอบว่ามี columns ที่จำเป็น
         required_cols = dimensions + [date_col, target_col]
@@ -174,7 +174,7 @@ class FullAuditEngine:
         )
         
         # 4. คำนวณ Fences (IQR Method)
-        k = 2.0  # Sensitivity (1.5 = strict, 2.0 = moderate, 3.0 = relaxed)
+        k = K  # Sensitivity (1.5 = strict, 2.0 = moderate, 3.0 = relaxed)
         df_calc['UPPER_FENCE'] = df_calc['HIST_Q3'] + (k * df_calc['HIST_IQR'])
         df_calc['LOWER_FENCE'] = (df_calc['HIST_Q1'] - (k * df_calc['HIST_IQR'])).clip(lower=0)
         
