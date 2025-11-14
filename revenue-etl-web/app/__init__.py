@@ -62,6 +62,17 @@ def create_app():
     app.register_blueprint(user_bp)
     app.register_blueprint(admin_bp)
 
+    # Custom Jinja2 filters
+    @app.template_filter('timestamp_to_datetime')
+    def timestamp_to_datetime_filter(timestamp):
+        """Convert Unix timestamp to readable datetime string"""
+        try:
+            from datetime import datetime
+            dt = datetime.fromtimestamp(float(timestamp))
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except (ValueError, TypeError):
+            return str(timestamp)
+
     # Root route - redirect to login
     @app.route('/')
     def index():
