@@ -1,0 +1,6 @@
+{
+  "allowed_domains": ["ntplc.co.th"],
+  "admin_emails": ["pornthep.n@ntplc.co.th"],
+  "session_timeout_minutes": 120,
+  "max_otp_attempts": 3
+}
