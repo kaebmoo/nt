@@ -3,7 +3,7 @@ Authentication Routes
 Login, OTP verification, logout
 """
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app, jsonify
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -108,3 +108,32 @@ def logout():
 
     flash('ออกจากระบบเรียบร้อยแล้ว', 'success')
     return redirect(url_for('auth.login'))
+
+
+@auth_bp.route('/check-email-status')
+def check_email_status():
+    """
+    API endpoint to check email sending job status (for AJAX polling)
+
+    Returns:
+        JSON with job status
+    """
+    job_id = session.get('email_job_id')
+
+    if not job_id:
+        return jsonify({
+            'status': 'no_job',
+            'message': 'No email job found'
+        })
+
+    queue_manager = current_app.queue_manager
+
+    if not queue_manager or not queue_manager.is_available:
+        return jsonify({
+            'status': 'unavailable',
+            'message': 'Queue system not available'
+        })
+
+    job_status = queue_manager.get_job_status(job_id)
+
+    return jsonify(job_status)

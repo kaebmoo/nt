@@ -9,5 +9,9 @@ pytz==2023.3
 # Utilities
 python-dotenv==1.0.0
 
+# Redis Queue for async email
+redis==5.0.1
+rq==1.15.1
+
 # Production Server
 gunicorn==21.2.0
