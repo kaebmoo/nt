@@ -49,6 +49,7 @@ def create_app():
     app.job_scheduler = job_scheduler
 
     # Register blueprints
+    from flask import redirect, url_for
     from app.routes.auth import auth_bp
     from app.routes.user import user_bp
     from app.routes.admin import admin_bp
@@ -56,6 +57,12 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(admin_bp)
+
+    # Root route - redirect to login
+    @app.route('/')
+    def index():
+        """Redirect root to login page"""
+        return redirect(url_for('auth.login'))
 
     # Start scheduler
     job_scheduler.start()
