@@ -17,7 +17,15 @@ user_bp = Blueprint('user', __name__, url_prefix='/user')
 def dashboard():
     """User dashboard - view and download reports"""
     config = current_app.config_manager.get_etl_config()
-    reports_dir = Path(config.get('paths', {}).get('output', 'reports'))
+    reports_path = config.get('paths', {}).get('output', 'reports')
+
+    # Convert to absolute path
+    if not Path(reports_path).is_absolute():
+        # Relative to app root (parent of app directory)
+        app_root = Path(__file__).parent.parent.parent
+        reports_dir = app_root / reports_path
+    else:
+        reports_dir = Path(reports_path)
 
     # Get list of report files
     reports = []
@@ -45,11 +53,22 @@ def download_report(filename):
         return "Invalid filename", 400
 
     config = current_app.config_manager.get_etl_config()
-    reports_dir = Path(config.get('paths', {}).get('output', 'reports'))
+    reports_path = config.get('paths', {}).get('output', 'reports')
+
+    # Convert to absolute path
+    if not Path(reports_path).is_absolute():
+        # Relative to app root (parent of app directory)
+        app_root = Path(__file__).parent.parent.parent
+        reports_dir = app_root / reports_path
+    else:
+        reports_dir = Path(reports_path)
+
     file_path = reports_dir / filename
 
     if not file_path.exists():
-        return "File not found", 404
+        # Better error message showing actual path checked
+        current_app.logger_instance.error(f"File not found: {file_path}")
+        return f"File not found: {filename}<br>Checked path: {file_path}", 404
 
     # Log download
     current_app.logger_instance.log_access(
@@ -59,7 +78,7 @@ def download_report(filename):
     )
 
     return send_file(
-        file_path,
+        str(file_path),  # Convert Path to string
         as_attachment=True,
         download_name=filename
     )
