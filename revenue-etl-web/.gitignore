@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Flask
+instance/
+.webassets-cache
+
+# Environment
+.env
+
+# Data & Logs
+data/logs/**/*.log
+data/logs/**/*.json
+data/sessions/*.json
+reports/*.xlsx
+reports/*.csv
+
+# Keep structure
+!data/logs/.gitkeep
+!data/sessions/.gitkeep
+!reports/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
