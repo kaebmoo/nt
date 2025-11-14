@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2>Admin Dashboard</h2>
+<p>สวัสดีครับ, Admin {{ user.email }}</p>
+
+<div class="admin-nav">
+    <a href="{{ url_for('admin.dashboard') }}" class="btn btn-primary">Dashboard</a>
+    <a href="{{ url_for('admin.config') }}" class="btn">Config</a>
+    <a href="{{ url_for('admin.jobs') }}" class="btn">Jobs</a>
+    <a href="{{ url_for('admin.logs') }}" class="btn">Logs</a>
+    <a href="{{ url_for('user.dashboard') }}" class="btn">User View</a>
+</div>
+
+<div class="dashboard-grid">
+    <!-- ETL Status -->
+    <div class="card">
+        <h3>🔧 ETL Status</h3>
+        <p><strong>Running:</strong> {{ 'Yes' if etl_status.is_running else 'No' }}</p>
+        <p><strong>Scripts:</strong> {{ 'OK' if etl_status.scripts_exist else 'Missing' }}</p>
+        {% if not etl_status.scripts_exist %}
+        <p class="text-danger">Missing: {{ etl_status.missing_scripts|join(', ') }}</p>
+        {% endif %}
+    </div>
+
+    <!-- Schedule Info -->
+    <div class="card">
+        <h3>📅 Schedule</h3>
+        <p><strong>Enabled:</strong> {{ 'Yes' if schedule_info.enabled else 'No' }}</p>
+        <p><strong>Day:</strong> {{ schedule_info.day_of_month }}</p>
+        <p><strong>Time:</strong> {{ schedule_info.hour }}:{{ "%02d"|format(schedule_info.minute) }}</p>
+        {% if schedule_info.next_run %}
+        <p><strong>Next Run:</strong> {{ schedule_info.next_run[:16] }}</p>
+        {% endif %}
+    </div>
+
+    <!-- File Stats -->
+    <div class="card">
+        <h3>📊 Reports</h3>
+        <p><strong>Total:</strong> {{ stats.total_reports }}</p>
+        <p><strong>Size:</strong> {{ stats.total_size_mb }} MB</p>
+        {% if stats.latest_report %}
+        <p><strong>Latest:</strong> {{ stats.latest_report.filename }}</p>
+        {% endif %}
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+        <h3>⚡ Quick Actions</h3>
+        <form method="POST" action="{{ url_for('admin.run_job') }}">
+            <button type="submit" class="btn btn-success btn-block" 
+                    {% if etl_status.is_running %}disabled{% endif %}>
+                Run ETL Now
+            </button>
+        </form>
+        <br>
+        <a href="{{ url_for('admin.jobs') }}" class="btn btn-primary btn-block">View Jobs</a>
+    </div>
+</div>
+
+<!-- Recent Jobs -->
+<div class="card">
+    <h3>📋 Recent Jobs ({{ recent_jobs|length }})</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Job ID</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Duration</th>
+                <th>By</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in recent_jobs %}
+            <tr>
+                <td><a href="{{ url_for('admin.job_detail', job_id=job.job_id) }}">{{ job.job_id[:12] }}...</a></td>
+                <td>{{ job.job_type }}</td>
+                <td><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+                <td>{{ job.started_at[:16] }}</td>
+                <td>{% if job.duration_seconds %}{{ job.duration_seconds|round(1) }}s{% else %}-{% endif %}</td>
+                <td>{{ job.triggered_by }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center;">No jobs yet</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.admin-nav {
+    margin-bottom: 2rem;
+    display: flex;
+    gap: 1rem;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card h3 {
+    margin-bottom: 1rem;
+    color: #333;
+}
+
+.text-danger {
+    color: #dc2626;
+}
+
+.badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+}
+
+.badge-success {
+    background: #10b981;
+    color: white;
+}
+
+.badge-failed {
+    background: #dc2626;
+    color: white;
+}
+
+.badge-running {
+    background: #3b82f6;
+    color: white;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+th {
+    font-weight: 600;
+    background: #f9fafb;
+}
+</style>
+{% endblock %}
