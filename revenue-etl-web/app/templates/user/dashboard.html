@@ -74,20 +74,3 @@
 {% endif %}
 
 {% endblock %}
-
-{% block extra_js %}
-<script>
-// Convert timestamp to readable date
-document.addEventListener('DOMContentLoaded', function() {
-    // This would normally be done with Jinja2 filters, but adding JS fallback
-    const cells = document.querySelectorAll('td');
-    cells.forEach(cell => {
-        const timestamp = parseFloat(cell.textContent.trim());
-        if (!isNaN(timestamp) && timestamp > 1000000000) {
-            const date = new Date(timestamp * 1000);
-            cell.textContent = date.toLocaleString('th-TH');
-        }
-    });
-});
-</script>
-{% endblock %}
