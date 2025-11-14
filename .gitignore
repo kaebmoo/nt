@@ -208,3 +208,10 @@ __marimo__/
 .DS_Store
 *.csv
 *.xlsx
+
+# Archive files
+*.tar.gz
+*.zip
+*.tar
+*.rar
+*.7z
