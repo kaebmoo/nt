@@ -26,12 +26,29 @@ def dashboard():
     reports_dir = Path(config.get('paths', {}).get('output', 'reports'))
     reports_count = len(list(reports_dir.glob('*.xlsx'))) if reports_dir.exists() else 0
 
+    # Get available ETL scripts (only actual files that exist)
+    etl_dir = Path(config.get('paths', {}).get('etl_scripts', 'etl'))
+    available_scripts = []
+
+    if etl_dir.exists():
+        for script_file in etl_dir.glob('*.py'):
+            script_name = script_file.stem  # filename without .py
+            available_scripts.append({
+                'name': script_name,
+                'filename': script_file.name,
+                'display_name': script_name.replace('_', ' ').title()
+            })
+
+    # Sort by name
+    available_scripts.sort(key=lambda x: x['name'])
+
     return render_template(
         'admin/dashboard.html',
         email=session.get('email'),
         scheduler_status=scheduler_status,
         recent_jobs=recent_jobs,
-        reports_count=reports_count
+        reports_count=reports_count,
+        available_scripts=available_scripts
     )
 
 
@@ -187,14 +204,18 @@ def run_job():
         flash('กรุณาเลือก script ที่ต้องการรัน', 'error')
         return redirect(url_for('admin.dashboard'))
 
-    # Get script choices from config
+    # Validate that script file actually exists
     etl_config = current_app.config_manager.get_etl_config()
-    scripts = etl_config.get('scripts', {})
+    etl_dir = Path(etl_config.get('paths', {}).get('etl_scripts', 'etl'))
 
-    # Validate script name
-    valid_scripts = list(scripts.values())
-    if script_name not in valid_scripts:
-        flash('Script ไม่ถูกต้อง', 'error')
+    # Check if script exists (with or without .py extension)
+    script_path = etl_dir / script_name
+    if not script_path.suffix:
+        script_path = etl_dir / f"{script_name}.py"
+
+    if not script_path.exists():
+        flash(f'ไม่พบไฟล์ script: {script_name}', 'error')
+        flash(f'กรุณา copy ETL scripts ของคุณไปที่ folder etl/', 'warning')
         return redirect(url_for('admin.dashboard'))
 
     # Run job
