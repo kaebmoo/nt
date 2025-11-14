@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Verify OTP{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6 col-lg-4 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="text-center">ยืนยันตัวตนด้วย OTP</h3>
+            </div>
+            {% if dev_otp_code %}
+            <div class="alert alert-warning text-center" role="alert">
+                <strong>Developer Mode OTP:</strong> {{ dev_otp_code }} (This is only visible in development mode when email is not configured.)
+            </div>
+            {% endif %}
+            <div class="card-body">
+                <p class="text-center">เราได้ส่งรหัส OTP ไปที่อีเมลของคุณแล้ว (กรุณาเช็คใน Junk/Spam หากไม่พบ)</p>
+                <form method="POST" action="{{ url_for('public.verify_otp') }}" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">
+                        {{ form.otp_code.label(class="form-label") }}
+                        {{ form.otp_code(class="form-control", placeholder="xxxxxx") }}
+                    </div>
+                    {{ form.submit(class="btn btn-primary w-100") }}
+                </form>
+            </div>
+            <div class="card-footer text-center">
+                <a href="{{ url_for('public.login') }}">กลับไปหน้า Login</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

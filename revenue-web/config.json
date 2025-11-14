@@ -1,0 +1,11 @@
+{
+  "paths": {
+    "fi_input": "data/input/fi",
+    "fi_output": "data/processed/fi",
+    "final_output": "reports"
+  },
+  "master_files": {
+    "expense_mapping": "masters/expense_mapping.xlsx",
+    "product_mapping": "masters/product_mapping.xlsx"
+  }
+}
