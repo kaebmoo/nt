@@ -16,7 +16,7 @@ from flask import session, redirect, url_for, request
 class AuthManager:
     """Manages OTP-based authentication"""
 
-    def __init__(self, config_manager, email_sender, logger):
+    def __init__(self, config_manager, email_sender, logger, queue_manager=None):
         """
         Initialize authentication manager
 
@@ -24,10 +24,12 @@ class AuthManager:
             config_manager: ConfigManager instance
             email_sender: EmailSender instance
             logger: JSONLogger instance
+            queue_manager: QueueManager instance (optional)
         """
         self.config = config_manager
         self.email_sender = email_sender
         self.logger = logger
+        self.queue_manager = queue_manager
 
         self.sessions_dir = Path("data/sessions")
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
@@ -72,11 +74,41 @@ class AuthManager:
         session_file = self.sessions_dir / f"otp_{email.replace('@', '_at_')}.json"
         self._save_json(session_file, otp_data)
 
-        # Send OTP via email
-        success = self.email_sender.send_otp(email, otp_code)
+        # Try to send OTP via RQ worker (async) with fallback to sync
+        success = False
+        job_id = None
+
+        # Try RQ first (if available)
+        if self.queue_manager and self.queue_manager.is_available:
+            try:
+                from app.utils.email_tasks import send_otp_email_task
+
+                job = self.queue_manager.enqueue_email(
+                    send_otp_email_task,
+                    recipient_email=email,
+                    otp_code=otp_code
+                )
+
+                if job:
+                    job_id = job.id
+                    # Store job_id in session for tracking
+                    session['email_job_id'] = job_id
+                    success = True
+                    self.logger.info(f"OTP queued for {email}, job_id: {job_id}")
+
+            except Exception as e:
+                self.logger.warning(f"RQ failed, falling back to sync email: {e}")
+
+        # Fallback to synchronous email sending
+        if not success:
+            success = self.email_sender.send_otp(email, otp_code)
 
         if success:
-            self.logger.log_access(email, "otp_sent", {"expiry": expiry_time.isoformat()})
+            self.logger.log_access(email, "otp_sent", {
+                "expiry": expiry_time.isoformat(),
+                "async": job_id is not None,
+                "job_id": job_id
+            })
         else:
             self.logger.warning(f"Failed to send OTP to {email}")
 
