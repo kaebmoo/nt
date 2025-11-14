@@ -64,14 +64,15 @@
                 <i class="fas fa-play"></i> รันงาน ETL
             </div>
             <div class="card-body">
+                {% if available_scripts %}
                 <form method="POST" action="{{ url_for('admin.run_job') }}">
                     <div class="row">
                         <div class="col-md-8">
                             <select name="script" class="form-select" required>
                                 <option value="">-- เลือก Script --</option>
-                                <option value="fi_revenue_expense">fi_revenue_expense.py</option>
-                                <option value="revenue_etl_report">revenue_etl_report.py</option>
-                                <option value="revenue_reconciliation">revenue_reconciliation.py</option>
+                                {% for script in available_scripts %}
+                                <option value="{{ script.name }}">{{ script.display_name }} ({{ script.filename }})</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-4">
@@ -81,6 +82,19 @@
                         </div>
                     </div>
                 </form>
+                {% else %}
+                <div class="alert alert-warning" role="alert">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>ไม่พบ ETL scripts!</strong>
+                    <p class="mb-0 mt-2">กรุณา copy ETL scripts ของคุณไปที่ folder <code>etl/</code></p>
+                    <p class="mb-0">ตัวอย่าง:</p>
+                    <ul class="mb-0 mt-2">
+                        <li><code>etl/fi_revenue_expense.py</code></li>
+                        <li><code>etl/revenue_etl_report.py</code></li>
+                        <li><code>etl/revenue_reconciliation.py</code></li>
+                    </ul>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
