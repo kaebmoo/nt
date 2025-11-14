@@ -137,8 +137,8 @@ class EmailSender:
                 print("SMTP configuration incomplete")
                 return False
 
-            # Connect and send
-            server = smtplib.SMTP(host, port, timeout=30)
+            # Connect and send (with longer timeout)
+            server = smtplib.SMTP(host, port, timeout=60)
 
             if use_tls:
                 server.starttls()
@@ -151,6 +151,15 @@ class EmailSender:
 
             return True
 
+        except smtplib.SMTPException as e:
+            print(f"SMTP Error sending email to {to_email}: {e}")
+            return False
+        except ConnectionError as e:
+            print(f"Connection Error sending email to {to_email}: {e}")
+            return False
+        except TimeoutError as e:
+            print(f"Timeout Error sending email to {to_email}: {e}")
+            return False
         except Exception as e:
-            print(f"Error sending email: {e}")
+            print(f"Unexpected Error sending email to {to_email}: {e}")
             return False
