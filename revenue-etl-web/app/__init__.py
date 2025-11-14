@@ -7,6 +7,7 @@ from flask import Flask
 from app.config import ConfigManager
 from app.logger import JSONLogger
 from app.utils.email_sender import EmailSender
+from app.utils.queue_manager import QueueManager
 from app.auth import AuthManager
 from app.etl_runner import ETLRunner
 from app.scheduler import JobScheduler
@@ -16,6 +17,7 @@ from app.scheduler import JobScheduler
 config_manager = None
 logger = None
 email_sender = None
+queue_manager = None
 auth_manager = None
 etl_runner = None
 job_scheduler = None
@@ -31,12 +33,13 @@ def create_app():
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
     # Initialize components
-    global config_manager, logger, email_sender, auth_manager, etl_runner, job_scheduler
+    global config_manager, logger, email_sender, queue_manager, auth_manager, etl_runner, job_scheduler
 
     config_manager = ConfigManager()
     logger = JSONLogger()
     email_sender = EmailSender(config_manager.get_email_config())
-    auth_manager = AuthManager(config_manager, email_sender, logger)
+    queue_manager = QueueManager()
+    auth_manager = AuthManager(config_manager, email_sender, logger, queue_manager)
     etl_runner = ETLRunner(config_manager, logger, email_sender)
     job_scheduler = JobScheduler(config_manager, etl_runner, logger)
 
@@ -44,6 +47,7 @@ def create_app():
     app.config_manager = config_manager
     app.logger_instance = logger
     app.email_sender = email_sender
+    app.queue_manager = queue_manager
     app.auth_manager = auth_manager
     app.etl_runner = etl_runner
     app.job_scheduler = job_scheduler
