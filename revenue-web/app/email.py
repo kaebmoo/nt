@@ -64,7 +64,16 @@ def send_email(subject, recipients, text_body, html_body):
         return
 
     try:
-        msg = Message(subject, recipients=recipients)
+        # Create sender with name if MAIL_FROM_NAME is configured
+        sender_name = app.config.get('MAIL_FROM_NAME')
+        sender_email = app.config.get('MAIL_FROM') or app.config.get('MAIL_DEFAULT_SENDER')
+
+        if sender_name and sender_email:
+            sender = f"{sender_name} <{sender_email}>"
+        else:
+            sender = sender_email
+
+        msg = Message(subject, recipients=recipients, sender=sender)
         msg.body = text_body
         msg.html = html_body
         Thread(target=send_async_email, args=(app, msg)).start()

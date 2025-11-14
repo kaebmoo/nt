@@ -15,7 +15,9 @@ class Config:
     MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'false').lower() in ['true', '1', 'yes']
     MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER')
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_FROM', 'noreply@ntplc.co.th')
+    MAIL_FROM = os.environ.get('MAIL_FROM', 'noreply@ntplc.co.th')
+    MAIL_FROM_NAME = os.environ.get('MAIL_FROM_NAME', 'Managerial Accounting System')
     REDIS_URL = os.environ.get('REDIS_URL') or 'redis://'
     LOGS_DIR = os.path.join(basedir, 'logs')
     REPORTS_DIR = os.path.join(basedir, 'reports')
