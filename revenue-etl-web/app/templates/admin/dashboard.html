@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - Revenue ETL System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2>
+            <i class="fas fa-tachometer-alt"></i> Admin Dashboard
+        </h2>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-file-alt"></i> รายงาน
+                </h5>
+                <h2 class="mb-0">{{ reports_count }}</h2>
+                <small>ไฟล์ทั้งหมด</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card {% if scheduler_status.running %}bg-success{% else %}bg-warning{% endif %} text-white">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-clock"></i> Scheduler
+                </h5>
+                <h5 class="mb-0">
+                    {% if scheduler_status.running %}
+                        <i class="fas fa-check-circle"></i> Running
+                    {% else %}
+                        <i class="fas fa-pause-circle"></i> Stopped
+                    {% endif %}
+                </h5>
+                <small>Next: {{ scheduler_status.next_run }}</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-tasks"></i> งานล่าสุด
+                </h5>
+                <h2 class="mb-0">{{ recent_jobs|length }}</h2>
+                <small>งานที่เพิ่งทำ</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Run Jobs Section -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <i class="fas fa-play"></i> รันงาน ETL
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin.run_job') }}">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <select name="script" class="form-select" required>
+                                <option value="">-- เลือก Script --</option>
+                                <option value="fi_revenue_expense">fi_revenue_expense.py</option>
+                                <option value="revenue_etl_report">revenue_etl_report.py</option>
+                                <option value="revenue_reconciliation">revenue_reconciliation.py</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-success w-100">
+                                <i class="fas fa-play-circle"></i> รันเลย
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Jobs -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-history"></i> งานล่าสุด</span>
+                <a href="{{ url_for('admin.jobs') }}" class="btn btn-sm btn-light">ดูทั้งหมด</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_jobs %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Job ID</th>
+                                <th>Script</th>
+                                <th>สถานะ</th>
+                                <th>เวลา</th>
+                                <th>ดูรายละเอียด</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for job in recent_jobs[:10] %}
+                            <tr>
+                                <td><code>{{ job.job_id }}</code></td>
+                                <td>{{ job.script }}</td>
+                                <td>
+                                    {% if job.status == 'completed' %}
+                                        <span class="badge bg-success">สำเร็จ</span>
+                                    {% elif job.status == 'failed' %}
+                                        <span class="badge bg-danger">ล้มเหลว</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">กำลังทำงาน</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ job.start_time }}</td>
+                                <td>
+                                    <a href="{{ url_for('admin.job_detail', job_id=job.job_id) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-eye"></i> ดู
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-muted">
+                    <i class="fas fa-inbox"></i> ยังไม่มีงานในระบบ
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

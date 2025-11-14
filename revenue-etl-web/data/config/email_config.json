@@ -1,0 +1,17 @@
+{
+  "smtp": {
+    "host": "mail.example.com",
+    "port": 587,
+    "use_tls": true,
+    "username": "noreply@example.com",
+    "password": ""
+  },
+  "sender": {
+    "name": "Revenue ETL System",
+    "email": "noreply@example.com"
+  },
+  "otp": {
+    "length": 6,
+    "expiry_minutes": 10
+  }
+}
