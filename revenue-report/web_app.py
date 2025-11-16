@@ -153,10 +153,10 @@ def main():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("▶️ Run All", use_container_width=True):
+            if st.button("▶️ Run All", width='stretch'):
                 run_all_modules()
         with col2:
-            if st.button("🔄 Reset", use_container_width=True):
+            if st.button("🔄 Reset", width='stretch'):
                 reset_system()
         
         st.markdown("---")
@@ -164,10 +164,10 @@ def main():
         # Module Controls
         st.header("📦 Individual Modules")
         
-        if st.button("1️⃣ Run FI Module", use_container_width=True):
+        if st.button("1️⃣ Run FI Module", width='stretch'):
             run_fi_module()
         
-        if st.button("2️⃣ Run ETL Module", use_container_width=True):
+        if st.button("2️⃣ Run ETL Module", width='stretch'):
             run_etl_module()
         
         st.markdown("---")
@@ -388,7 +388,7 @@ def show_fi_module():
                 df_summary = pd.read_excel(excel_path, sheet_name="summary_other")
                 
                 st.markdown("### Summary - รายได้/ค่าใช้จ่ายอื่น")
-                st.dataframe(df_summary, use_container_width=True)
+                st.dataframe(df_summary, width='stretch')
                 
                 # Create chart
                 fig = go.Figure()
@@ -520,7 +520,7 @@ def show_reconciliation():
     }
     
     df_reconcile = pd.DataFrame(reconcile_data)
-    st.dataframe(df_reconcile, use_container_width=True)
+    st.dataframe(df_reconcile, width='stretch')
 
 def show_analytics():
     """แสดงหน้า Analytics"""
