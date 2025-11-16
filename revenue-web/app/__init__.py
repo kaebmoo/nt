@@ -4,7 +4,6 @@ from logging.handlers import RotatingFileHandler
 from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, current_user
-from flask_mail import Mail
 from flask_migrate import Migrate
 from redis import Redis
 import rq
@@ -13,7 +12,6 @@ from config import Config
 db = SQLAlchemy()
 migrate = Migrate()
 login = LoginManager()
-mail = Mail()
 
 # Redirect users based on role after login
 def role_based_redirect():
@@ -41,7 +39,6 @@ def create_app(config_class=Config):
     db.init_app(app)
     migrate.init_app(app, db)
     login.init_app(app)
-    mail.init_app(app)
 
     app.redis = Redis.from_url(app.config['REDIS_URL'])
     app.task_queue = rq.Queue('revenue-jobs', connection=app.redis)

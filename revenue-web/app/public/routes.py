@@ -2,7 +2,7 @@ from flask import render_template, flash, redirect, url_for, session, request
 from flask_login import login_user, logout_user, current_user
 from app import db
 from app.public import bp
-from app.email import send_email
+from app.email_service import EmailService
 from app.models import User, Otp, Role
 from app.forms import LoginForm, OtpForm, RegistrationForm
 
@@ -32,13 +32,25 @@ def login():
         db.session.add(otp)
         db.session.commit()
         
-        send_email('Your OTP Code',
-                   recipients=[user.email],
-                   text_body=f'Your OTP code is: {otp.otp_code}',
-                   html_body=f'<h3>Your OTP code is: {otp.otp_code}</h3>')
-        
+        email_service = EmailService()
+        # The User model doesn't have a name, so we pass None.
+        # The email template handles this gracefully.
+        email_sent = email_service.send_otp_email(
+            recipient_email=user.email,
+            recipient_name=None, 
+            otp=otp.otp_code,
+            purpose='login'
+        )
+
+        if not email_sent:
+            # This indicates development mode or a failure in sending email.
+            # Store the OTP in the session for on-screen display.
+            session['dev_otp_code'] = otp.otp_code
+            flash('Email server not configured. OTP for development is displayed on the next page.', 'warning')
+        else:
+            flash('ระบบได้ส่งรหัส OTP 6 หลักไปที่อีเมลของคุณแล้ว', 'info')
+
         session['user_id_for_otp'] = user.id
-        flash('ระบบได้ส่งรหัส OTP 6 หลักไปที่อีเมลของคุณแล้ว', 'info')
         return redirect(url_for('public.verify_otp'))
         
     return render_template('public/login.html', title='Login', form=form)

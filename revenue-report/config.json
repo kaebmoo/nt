@@ -1,0 +1,157 @@
+{
+  "environment": {
+    "name": "production",
+    "description": "Revenue ETL Configuration"
+  },
+  
+  "paths": {
+    "darwin": {
+      "base_path": "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource",
+      "master_path": "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/master"
+    },
+    "linux": {
+      "base_path": "/home/seal/nt/data",
+      "master_path": "/home/seal/nt/master"
+    },
+    "windows": {
+      "base_path": "C:\\Users\\00320845\\OneDrive\\share\\Datasource",
+      "master_path": "C:\\Users\\00320845\\OneDrive\\share\\master"
+    }
+  },
+  
+  "processing_year": "2025",
+  
+  "fi_module": {
+    "description": "FI Revenue Expense Processing Configuration",
+    "input_subpath": "fi",
+    "output_subpath": "fi/output",
+    "master_subpath": "source",
+    
+    "input_files": [
+      "pld_nt_20251031.txt"
+    ],
+    
+    "master_files": {
+      "expense": "MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv",
+      "revenue": "MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv",
+      "other_revenue": "MASTER_OTHER_REVENUE_NET.csv",
+      "revenue_expense_net": "master_revenue_expense_net.csv"
+    },
+    
+    "output_files": {
+      "excel": "pl_combined_output_202510.xlsx",
+      "csv_expense": "pl_expense_nt_output_202510.csv",
+      "csv_revenue": "pl_revenue_nt_output_202510.csv"
+    },
+    
+    "encoding": {
+      "input": "tis-620",
+      "output": "utf-8",
+      "master": "utf-8"
+    },
+    
+    "processing_rules": {
+      "delimiter": "\t",
+      "expense_gl_pattern": "^(51|53|54|59|52)",
+      "revenue_gl_pattern": "^4"
+    }
+  },
+  
+  "etl_module": {
+    "description": "Revenue ETL Pipeline Configuration",
+    "input_subpath": "revenue",
+    "output_subpath": "revenue/output",
+    "final_output_subpath": "all/revenue",
+    
+    "reconciliation": {
+      "enabled": true,
+      "fi_month": "10",
+      "tolerance": 0.00
+    },
+    
+    "master_files": {
+      "product": "MASTER_PRODUCT_NT_2025.csv",
+      "gl_code": "source/MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv",
+      "mapping_cc": "MAPPING_CC.csv",
+      "mapping_product": "clean/MAP_PRODUCT_NT_NEW_2024.csv"
+    },
+    
+    "input_patterns": {
+      "main_files": [
+        "TRN_REVENUE_NT1_*.csv",
+        "TRN_REVENUE_ADJ_GL_NT1_*.csv"
+      ],
+      "adj_monthly": "TRN_REVENUE_ADJ_*.csv",
+      "adj_ytd": "TRN_REVENUE_ADJ_YTD_*.csv"
+    },
+    
+    "output_files": {
+      "concat": "trn_revenue_nt_2025.csv",
+      "mapped_cc": "revenue_new_cc_2025.csv",
+      "mapped_product": "revenue_mapped_product_2025_.csv",
+      "final_report": "REVENUE_NT_REPORT_2025.csv",
+      "error_gl": "error_gl_REVENUE_NT_REPORT_2025.csv",
+      "error_product": "error_product_REVENUE_NT_REPORT_2025.csv"
+    },
+    
+    "business_rules": {
+      "exclude_business_group": "รายได้อื่น",
+      "non_telecom_service_group": "กลุ่มบริการอื่นไม่ใช่โทรคมนาคม",
+      "new_adj_business_group": "ผลตอบแทนทางการเงินและรายได้อื่น",
+      "financial_income_name": "ผลตอบแทนทางการเงิน",
+      "other_revenue_adj_name": "รายได้อื่น"
+    },
+    
+    "special_mappings": [
+      {
+        "name": "GSaaS to Other Revenue",
+        "condition": {
+          "product_key": "102010407",
+          "gl_code": "46400101"
+        },
+        "mapping": {
+          "product_key": "292020407",
+          "sub_product_key": "1"
+        }
+      }
+    ],
+    
+    "validation": {
+      "grand_total_diff_threshold": 0.01,
+      "required_columns": [
+        "YEAR", "MONTH", "CUSTOMER_GROUP_KEY", "PRODUCT_KEY",
+        "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER", "REVENUE_VALUE"
+      ]
+    },
+    
+    "anomaly_detection": {
+      "enabled": true,
+      "iqr_multiplier": 1.5,
+      "min_history": 3,
+      "rolling_window": 6,
+      "enable_historical_highlight": true,
+      "levels": {
+        "product": {
+          "group_by": ["BUSINESS_GROUP", "SERVICE_GROUP", "PRODUCT_KEY", "PRODUCT_NAME"]
+        },
+        "service": {
+          "group_by": ["BUSINESS_GROUP", "SERVICE_GROUP"]
+        },
+        "business": {
+          "group_by": ["BUSINESS_GROUP"]
+        },
+        "grand_total": {
+          "group_by": []
+        }
+      }
+    }
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "format": "[%(asctime)s] [%(levelname)s] %(message)s",
+    "date_format": "%Y-%m-%d %H:%M:%S",
+    "enable_file_logging": true,
+    "log_directory": "logs"
+  }
+}

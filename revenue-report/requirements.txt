@@ -1,0 +1,34 @@
+# Revenue ETL System Requirements
+# Python 3.8+
+
+# Core Data Processing
+pandas>=1.5.3
+numpy>=1.24.3
+openpyxl>=3.1.2
+xlsxwriter>=3.1.2
+
+# Web Application (optional)
+streamlit>=1.28.0
+flask>=2.3.2
+flask-cors>=4.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+pathlib2>=2.3.7
+
+# Development Tools (optional)
+pytest>=7.4.0
+black>=23.3.0
+flake8>=6.0.0
+
+# Data Visualization (for web app)
+plotly>=5.14.1
+matplotlib>=3.7.1
+
+# Database Connectors (optional)
+# sqlalchemy>=2.0.15
+# psycopg2-binary>=2.9.6
+# pymssql>=2.2.7
+
+# Logging and Monitoring
+loguru>=0.7.0
