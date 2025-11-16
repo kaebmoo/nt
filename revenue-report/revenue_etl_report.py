@@ -5,11 +5,116 @@ import os
 from pathlib import Path
 from datetime import datetime
 import platform
+from typing import Dict, Any
 from revenue_reconciliation import RevenueReconciliation, ReconciliationError
 
 
 # ============================================================================
-# CONFIGURATION - จัดการ Config ทั้งหมดที่นี่
+# CONFIG ADAPTER - แปลง dict config เป็น object-like access
+# ============================================================================
+class ConfigAdapter:
+    """
+    Adapter class สำหรับแปลง config dictionary เป็น attribute-based access
+    เพื่อให้โค้ดเดิมใช้งานได้โดยไม่ต้องแก้ไขมาก
+    """
+    def __init__(self, config_dict: Dict[str, Any]):
+        """
+        Args:
+            config_dict: Configuration dictionary จาก ConfigManager
+        """
+        # ETL Module config
+        etl_config = config_dict
+
+        # ปีที่ประมวลผล
+        self.YEAR = etl_config['year']
+
+        # Reconciliation Settings
+        reconcile = etl_config.get('reconciliation', {})
+        self.RECONCILE_FI_MONTH = reconcile.get('fi_month', '10')
+        self.RECONCILE_TOLERANCE = reconcile.get('tolerance', 0.00)
+        self.ENABLE_RECONCILIATION = reconcile.get('enabled', True)
+
+        # Master Files
+        master_files = etl_config.get('master_files', {})
+        self.MASTER_PRODUCT_FILE = f"MASTER_PRODUCT_NT_{self.YEAR}.csv"
+        self.MASTER_GL_FILE = master_files.get('gl_code', '')
+        self.MAPPING_CC_FILE = master_files.get('mapping_cc', '')
+        self.MAPPING_PRODUCT_FILE = master_files.get('mapping_product', '')
+
+        # Input File Patterns (ใช้ default ถ้าไม่มีใน config)
+        self.INPUT_FILE_PATTERNS = etl_config.get('input_file_patterns', [
+            "TRN_REVENUE_NT1_*.csv",
+            "TRN_REVENUE_ADJ_GL_NT1_*.csv"
+        ])
+        self.ADJ_MONTHLY_PATTERN = etl_config.get('adj_monthly_pattern', "TRN_REVENUE_ADJ_*.csv")
+        self.ADJ_YTD_PATTERN = etl_config.get('adj_ytd_pattern', "TRN_REVENUE_ADJ_YTD_*.csv")
+
+        # Business Rules
+        business_rules = etl_config.get('business_rules', {})
+        self.EXCLUDE_BUSINESS_GROUP = business_rules.get('exclude_business_group', 'รายได้อื่น')
+        self.NON_TELECOM_SERVICE_GROUP = business_rules.get('non_telecom_service_group', 'กลุ่มบริการอื่นไม่ใช่โทรคมนาคม')
+        self.NEW_ADJ_BUSINESS_GROUP = business_rules.get('new_adj_business_group', 'ผลตอบแทนทางการเงินและรายได้อื่น')
+        self.FINANCIAL_INCOME_NAME = business_rules.get('financial_income_name', 'ผลตอบแทนทางการเงิน')
+        self.OTHER_REVENUE_ADJ_NAME = business_rules.get('other_revenue_adj_name', 'รายได้อื่น')
+
+        # Output Files
+        output_files = etl_config.get('output_files', {})
+        self.OUTPUT_CONCAT_FILE = output_files.get('concat', f"trn_revenue_nt_{self.YEAR}.csv")
+        self.OUTPUT_MAPPED_CC_FILE = output_files.get('mapped_cc', f"revenue_new_cc_{self.YEAR}.csv")
+        self.OUTPUT_MAPPED_PRODUCT_FILE = output_files.get('mapped_product', f"revenue_mapped_product_{self.YEAR}_.csv")
+        self.OUTPUT_FINAL_REPORT_FILE = output_files.get('final_report', f"REVENUE_NT_REPORT_{self.YEAR}.csv")
+        self.ERROR_GL_FILE = output_files.get('error_gl', f"error_gl_REVENUE_NT_REPORT_{self.YEAR}.csv")
+        self.ERROR_PRODUCT_FILE = output_files.get('error_product', f"error_product_REVENUE_NT_REPORT_{self.YEAR}.csv")
+
+        # Required Columns
+        self.REQUIRED_COLUMNS = etl_config.get('required_columns', [
+            "YEAR", "MONTH", "CUSTOMER_GROUP_KEY", "PRODUCT_KEY",
+            "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER", "REVENUE_VALUE"
+        ])
+
+        # Special Mappings
+        self.SPECIAL_MAPPINGS = etl_config.get('special_mappings', [
+            {
+                "name": "GSaaS to Other Revenue",
+                "condition": {
+                    "PRODUCT_KEY": "102010407",
+                    "GL_CODE": "46400101"
+                },
+                "mapping": {
+                    "PRODUCT_KEY": "292020407",
+                    "SUB_PRODUCT_KEY": "1"
+                }
+            }
+        ])
+
+        # Validation Thresholds
+        self.GRAND_TOTAL_DIFF_THRESHOLD = etl_config.get('grand_total_diff_threshold', 0.01)
+
+        # Anomaly Detection Settings
+        anomaly = etl_config.get('anomaly_detection', {})
+        self.ANOMALY_IQR_MULTIPLIER = anomaly.get('iqr_multiplier', 1.5)
+        self.ANOMALY_MIN_HISTORY = anomaly.get('min_history', 3)
+        self.ANOMALY_ROLLING_WINDOW = anomaly.get('rolling_window', 6)
+        self.ENABLE_HISTORICAL_HIGHLIGHT = anomaly.get('enable_historical_highlight', True)
+
+        # Anomaly Levels
+        self.ANOMALY_LEVELS = {
+            "product": {"group_by": ["BUSINESS_GROUP", "SERVICE_GROUP", "PRODUCT_KEY", "PRODUCT_NAME"]},
+            "service": {"group_by": ["BUSINESS_GROUP", "SERVICE_GROUP"]},
+            "business": {"group_by": ["BUSINESS_GROUP"]},
+            "grand_total": {"group_by": []}
+        }
+
+    def get_paths(self):
+        """
+        Dummy method for backward compatibility
+        จะไม่ถูกใช้งานเพราะ paths จะถูกส่งมาจาก ConfigManager แล้ว
+        """
+        raise NotImplementedError("get_paths() should not be called when using ConfigAdapter")
+
+
+# ============================================================================
+# LEGACY CONFIGURATION - สำหรับ backward compatibility เท่านั้น (ไม่ควรใช้แล้ว)
 # ============================================================================
 class Config:
     """
@@ -146,15 +251,25 @@ class RevenueETL:
     4. Merge กับ Master Files, กรอง, รวม ADJ Data, และสร้างรายงานสุดท้าย
     """
     
-    def __init__(self, config=None):
+    def __init__(self, config=None, paths=None):
         """
         Args:
-            config: Config class หรือ None (ใช้ Config default)
+            config: Configuration dictionary (from ConfigManager) หรือ Config class (legacy) หรือ None
+            paths: Dictionary ของ paths (จาก ConfigManager) หรือ None
         """
-        self.config = config or Config
-        self.paths = self.config.get_paths()
+        # สำหรับ V2: รับ config dict และ paths dict จาก ConfigManager
+        if isinstance(config, dict):
+            self.config_dict = config  # เก็บ dict ไว้สำหรับส่งต่อ
+            self.config = ConfigAdapter(config)  # แปลงเป็น object-like
+            self.paths = paths if paths else config.get('paths', {})
+        # สำหรับ V1 (legacy): รับ Config class
+        else:
+            self.config_dict = None
+            self.config = config or Config
+            self.paths = self.config.get_paths()
+
         self.setup_directories()
-        
+
         # ตัวแปรสำหรับเก็บ YTD data ไว้ใช้ใน report
         self.df_adj_ytd = pd.DataFrame() 
         
@@ -196,8 +311,10 @@ class RevenueETL:
         if not self.config.ENABLE_RECONCILIATION:
             self.log("⚠️  Reconciliation ถูกปิดใช้งาน")
             return None
-        
-        reconciler = RevenueReconciliation(self.config, self.paths)
+
+        # สำหรับ V2: ส่ง config_dict (ถ้ามี), สำหรับ V1: ส่ง config object
+        config_to_pass = self.config_dict if self.config_dict is not None else self.config
+        reconciler = RevenueReconciliation(config_to_pass, self.paths)
         
         fi_file = os.path.join(
             self.paths['base'], 
