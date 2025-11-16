@@ -10,10 +10,10 @@ class RevenueReconciliation:
     เทียบระหว่างข้อมูลจากงบการเงิน (FI) กับข้อมูลจาก Transaction (TRN)
     """
     
-    def __init__(self, config, paths):
+    def __init__(self, config: dict, paths: dict):
         """
         Args:
-            config: Config class
+            config: Configuration dictionary (from ConfigManager)
             paths: dict ของ paths ทั้งหมด
         """
         self.config = config
@@ -326,7 +326,7 @@ class RevenueReconciliation:
         log_dir.mkdir(parents=True, exist_ok=True)
         
         # บันทึก Summary Log (Text)
-        summary_file = log_dir / f"reconcile_summary_{self.config.YEAR}_{timestamp}.txt"
+        summary_file = log_dir / f"reconcile_summary_{self.config['year']}_{timestamp}.txt"
         with open(summary_file, 'w', encoding='utf-8') as f:
             f.write("=" * 80 + "\n")
             f.write("REVENUE RECONCILIATION REPORT\n")
@@ -400,13 +400,13 @@ class RevenueReconciliation:
         
         # บันทึก Detail Log (CSV) - เฉพาะ errors
         if monthly['error_count'] > 0:
-            monthly_csv = log_dir / f"reconcile_monthly_errors_{self.config.YEAR}_{timestamp}.csv"
+            monthly_csv = log_dir / f"reconcile_monthly_errors_{self.config['year']}_{timestamp}.csv"
             df_monthly_errors = pd.DataFrame(monthly['errors'])
             df_monthly_errors.to_csv(monthly_csv, index=False, encoding='utf-8-sig')
             self.log(f"✓ บันทึก Monthly Errors CSV: {monthly_csv}")
         
         if ytd['error_count'] > 0:
-            ytd_csv = log_dir / f"reconcile_ytd_errors_{self.config.YEAR}_{timestamp}.csv"
+            ytd_csv = log_dir / f"reconcile_ytd_errors_{self.config['year']}_{timestamp}.csv"
             df_ytd_errors = pd.DataFrame(ytd['errors'])
             df_ytd_errors.to_csv(ytd_csv, index=False, encoding='utf-8-sig')
             self.log(f"✓ บันทึก YTD Errors CSV: {ytd_csv}")

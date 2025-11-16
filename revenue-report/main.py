@@ -120,12 +120,12 @@ class RevenueETLSystem:
             
             # ดึง config สำหรับ ETL module
             etl_config = self.config_manager.get_etl_config()
-            
-            # แก้ไข Config class ใน revenue_etl_report ให้ใช้ค่าจาก ConfigManager
-            self._update_etl_config(etl_config)
-            
-            # สร้าง ETL instance
-            self.etl_processor = revenue_etl_report.RevenueETL()
+
+            # สร้าง ETL instance (V2 - ส่ง config dict และ paths เข้าไปโดยตรง)
+            self.etl_processor = revenue_etl_report.RevenueETL(
+                config=etl_config,
+                paths=etl_config['paths']
+            )
             
             # รัน ETL pipeline steps ตามลำดับ
             self.log("Step 1: รวมไฟล์ CSV...")
@@ -169,50 +169,6 @@ class RevenueETLSystem:
             traceback.print_exc()
             return False
     
-    def _update_etl_config(self, etl_config: dict) -> None:
-        """
-        อัพเดท Config class ใน revenue_etl_report module
-        
-        Args:
-            etl_config: configuration จาก ConfigManager
-        """
-        # อัพเดท paths
-        revenue_etl_report.Config.YEAR = etl_config['year']
-        
-        # อัพเดท master files
-        revenue_etl_report.Config.MASTER_PRODUCT_FILE = f"MASTER_PRODUCT_NT_{etl_config['year']}.csv"
-        revenue_etl_report.Config.MASTER_GL_FILE = etl_config['master_files']['gl_code']
-        revenue_etl_report.Config.MAPPING_CC_FILE = etl_config['master_files']['mapping_cc']
-        revenue_etl_report.Config.MAPPING_PRODUCT_FILE = etl_config['master_files']['mapping_product']
-        
-        # อัพเดท reconciliation settings
-        revenue_etl_report.Config.RECONCILE_FI_MONTH = etl_config['reconciliation']['fi_month']
-        revenue_etl_report.Config.RECONCILE_TOLERANCE = etl_config['reconciliation']['tolerance']
-        revenue_etl_report.Config.ENABLE_RECONCILIATION = etl_config['reconciliation']['enabled']
-        
-        # อัพเดท business rules
-        revenue_etl_report.Config.EXCLUDE_BUSINESS_GROUP = etl_config['business_rules']['exclude_business_group']
-        revenue_etl_report.Config.NON_TELECOM_SERVICE_GROUP = etl_config['business_rules']['non_telecom_service_group']
-        revenue_etl_report.Config.NEW_ADJ_BUSINESS_GROUP = etl_config['business_rules']['new_adj_business_group']
-        revenue_etl_report.Config.FINANCIAL_INCOME_NAME = etl_config['business_rules']['financial_income_name']
-        revenue_etl_report.Config.OTHER_REVENUE_ADJ_NAME = etl_config['business_rules']['other_revenue_adj_name']
-        
-        # อัพเดท output files
-        revenue_etl_report.Config.OUTPUT_CONCAT_FILE = etl_config['output_files']['concat']
-        revenue_etl_report.Config.OUTPUT_MAPPED_CC_FILE = etl_config['output_files']['mapped_cc']
-        revenue_etl_report.Config.OUTPUT_MAPPED_PRODUCT_FILE = etl_config['output_files']['mapped_product']
-        revenue_etl_report.Config.OUTPUT_FINAL_REPORT_FILE = etl_config['output_files']['final_report']
-        revenue_etl_report.Config.ERROR_GL_FILE = etl_config['output_files']['error_gl']
-        revenue_etl_report.Config.ERROR_PRODUCT_FILE = etl_config['output_files']['error_product']
-        
-        # อัพเดท anomaly detection settings
-        revenue_etl_report.Config.ANOMALY_IQR_MULTIPLIER = etl_config['anomaly_detection']['iqr_multiplier']
-        revenue_etl_report.Config.ANOMALY_MIN_HISTORY = etl_config['anomaly_detection']['min_history']
-        revenue_etl_report.Config.ANOMALY_ROLLING_WINDOW = etl_config['anomaly_detection']['rolling_window']
-        revenue_etl_report.Config.ENABLE_HISTORICAL_HIGHLIGHT = etl_config['anomaly_detection']['enable_historical_highlight']
-        
-        self.log("✓ อัพเดท ETL Configuration เรียบร้อย")
-    
     def _run_reconciliation(self, etl_config: dict) -> bool:
         """
         รัน Revenue Reconciliation
@@ -231,9 +187,9 @@ class RevenueETLSystem:
                 etl_config['output_files']['concat']
             )
             
-            # สร้าง Reconciliation instance
+            # สร้าง Reconciliation instance (V2 - ส่ง config dict)
             reconciler = RevenueReconciliation(
-                revenue_etl_report.Config,
+                etl_config,
                 etl_config['paths']
             )
             
