@@ -106,12 +106,12 @@
       {
         "name": "GSaaS to Other Revenue",
         "condition": {
-          "product_key": "102010407",
-          "gl_code": "46400101"
+          "PRODUCT_KEY": "102010407",
+          "GL_CODE": "46400101"
         },
         "mapping": {
-          "product_key": "292020407",
-          "sub_product_key": "1"
+          "PRODUCT_KEY": "292020407",
+          "SUB_PRODUCT_KEY": "1"
         }
       }
     ],
