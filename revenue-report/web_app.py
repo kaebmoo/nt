@@ -71,12 +71,39 @@ if 'config_manager' not in st.session_state:
     st.session_state.fi_completed = False
     st.session_state.etl_completed = False
 
+def sync_status_from_system():
+    """
+    ซิงค์สถานะจาก system instance มาที่ session_state
+    (ใช้ system เป็น source of truth)
+    """
+    if st.session_state.system:
+        st.session_state.fi_completed = st.session_state.system.fi_completed
+        st.session_state.etl_completed = st.session_state.system.etl_completed
+
+def get_fi_status():
+    """
+    ดูสถานะ FI Module จาก system instance (source of truth)
+    """
+    if st.session_state.system:
+        return st.session_state.system.fi_completed
+    return st.session_state.fi_completed
+
+def get_etl_status():
+    """
+    ดูสถานะ ETL Module จาก system instance (source of truth)
+    """
+    if st.session_state.system:
+        return st.session_state.system.etl_completed
+    return st.session_state.etl_completed
+
 def load_configuration():
     """โหลด configuration จากไฟล์"""
     try:
         if os.path.exists("config.json"):
             st.session_state.config_manager = get_config_manager("config.json")
             st.session_state.system = RevenueETLSystem("config.json")
+            # ซิงค์สถานะเริ่มต้น
+            sync_status_from_system()
             return True
         else:
             st.error("❌ ไม่พบไฟล์ config.json")
@@ -147,13 +174,14 @@ def main():
         
         # Status
         st.header("📈 Processing Status")
-        
-        if st.session_state.fi_completed:
+
+        # ใช้ helper function เพื่อดูสถานะจาก system instance
+        if get_fi_status():
             st.success("✅ FI Module Completed")
         else:
             st.info("⏳ FI Module Pending")
-        
-        if st.session_state.etl_completed:
+
+        if get_etl_status():
             st.success("✅ ETL Module Completed")
         else:
             st.info("⏳ ETL Module Pending")
@@ -180,63 +208,62 @@ def main():
         show_logs()
 
 def run_all_modules():
-    """รันทุก module"""
+    """
+    รันทุก module โดยใช้ system.run_all()
+    (ไม่เขียนตรรกะซ้ำ - ใช้ที่มีอยู่แล้วใน main.py)
+    """
     if not st.session_state.system:
         st.error("❌ Please load configuration first")
         return
-    
+
     with st.spinner("Processing all modules..."):
-        placeholder = st.empty()
-        
-        # Run FI Module
-        placeholder.info("🔄 Running FI Module...")
-        if st.session_state.system.run_fi_module():
-            st.session_state.fi_completed = True
-            placeholder.success("✅ FI Module completed")
+        # เรียก run_all() ที่มีอยู่แล้วใน main.py
+        success = st.session_state.system.run_all()
+
+        if success:
+            # ซิงค์สถานะจาก system instance (source of truth)
+            sync_status_from_system()
+
+            st.balloons()
+            st.success("🎉 All modules completed successfully!")
         else:
-            placeholder.error("❌ FI Module failed")
-            return
-        
-        # Run ETL Module
-        placeholder.info("🔄 Running ETL Module...")
-        if st.session_state.system.run_etl_module():
-            st.session_state.etl_completed = True
-            placeholder.success("✅ ETL Module completed")
-        else:
-            placeholder.error("❌ ETL Module failed")
-            return
-        
-        st.balloons()
-        st.success("🎉 All modules completed successfully!")
+            # ซิงค์สถานะแม้ล้มเหลว (เพื่อแสดงสถานะที่ถูกต้อง)
+            sync_status_from_system()
+            st.error("❌ Processing failed")
 
 def run_fi_module():
     """รัน FI Module"""
     if not st.session_state.system:
         st.error("❌ Please load configuration first")
         return
-    
+
     with st.spinner("Running FI Module..."):
         if st.session_state.system.run_fi_module():
-            st.session_state.fi_completed = True
+            # ซิงค์สถานะจาก system instance
+            sync_status_from_system()
             st.success("✅ FI Module completed successfully")
         else:
+            # ซิงค์สถานะแม้ล้มเหลว
+            sync_status_from_system()
             st.error("❌ FI Module failed")
 
 def run_etl_module():
-    """รัน ETL Module"""
+    """
+    รัน ETL Module
+    (main.py จะตรวจสอบและรัน FI Module ก่อนอัตโนมัติถ้ายังไม่ได้รัน)
+    """
     if not st.session_state.system:
         st.error("❌ Please load configuration first")
         return
-    
-    if not st.session_state.fi_completed:
-        st.warning("⚠️ FI Module must be completed first")
-        return
-    
+
     with st.spinner("Running ETL Module..."):
         if st.session_state.system.run_etl_module():
-            st.session_state.etl_completed = True
+            # ซิงค์สถานะจาก system instance
+            sync_status_from_system()
             st.success("✅ ETL Module completed successfully")
         else:
+            # ซิงค์สถานะแม้ล้มเหลว
+            sync_status_from_system()
             st.error("❌ ETL Module failed")
 
 def reset_system():
@@ -264,11 +291,11 @@ def show_dashboard():
         )
     
     with col2:
-        status = "✅ Ready" if st.session_state.fi_completed else "⏳ Pending"
+        status = "✅ Ready" if get_fi_status() else "⏳ Pending"
         st.metric(label="FI Module", value=status)
-    
+
     with col3:
-        status = "✅ Ready" if st.session_state.etl_completed else "⏳ Pending"
+        status = "✅ Ready" if get_etl_status() else "⏳ Pending"
         st.metric(label="ETL Module", value=status)
     
     with col4:
@@ -303,8 +330,8 @@ def show_dashboard():
     # File Status
     st.markdown("---")
     st.subheader("📁 File Status")
-    
-    if st.session_state.fi_completed and st.session_state.system.fi_output:
+
+    if get_fi_status() and st.session_state.system and st.session_state.system.fi_output:
         st.markdown("### FI Output Files")
         for key, path in st.session_state.system.fi_output.items():
             if os.path.exists(path):
@@ -348,7 +375,7 @@ def show_fi_module():
         run_fi_module()
     
     # Results Display
-    if st.session_state.fi_completed:
+    if get_fi_status():
         st.markdown("### 📊 Processing Results")
         
         # Try to load and display summary
@@ -417,10 +444,10 @@ def show_etl_module():
         with col1:
             st.text(step)
         with col2:
-            if st.session_state.etl_completed:
+            if get_etl_status():
                 st.success("✅")
-        
-        if st.session_state.etl_completed:
+
+        if get_etl_status():
             progress_bar.progress((i + 1) / len(steps))
     
     # Configuration
@@ -448,8 +475,8 @@ def show_etl_module():
 def show_reconciliation():
     """แสดงหน้า Reconciliation"""
     st.header("✅ Reconciliation - Data Validation")
-    
-    if not st.session_state.etl_completed:
+
+    if not get_etl_status():
         st.info("Please complete ETL processing first")
         return
     
@@ -498,8 +525,8 @@ def show_reconciliation():
 def show_analytics():
     """แสดงหน้า Analytics"""
     st.header("📈 Analytics - Data Insights")
-    
-    if not st.session_state.etl_completed:
+
+    if not get_etl_status():
         st.info("Please complete processing to view analytics")
         return
     
