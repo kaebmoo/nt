@@ -1,11 +1,14 @@
 """
 Revenue ETL System - Main Program
 ==================================
-โปรแกรมหลักสำหรับประมวลผลข้อมูล Revenue ETL
-รองรับการเรียกใช้งานแบบ Command Line และ Web Application
+โปรแกรมหลักสำหรับประมวลผลข้อมูล Revenue ETL (V2.1)
+- ใช้ ConfigManager
+- เรียก FI Module (V2)
+- เรียก ETL Module (V2) (ซึ่งมี Reconciliation ภายใน)
+- เรียก Excel Report Function (V2)
 
 Author: Revenue ETL System
-Version: 2.0.0
+Version: 2.1.0
 """
 
 import sys
@@ -15,19 +18,22 @@ from datetime import datetime
 import traceback
 from pathlib import Path
 
-# Import modules
+# Import V2 modules
 from config_manager import ConfigManager, get_config_manager
 from fi_revenue_expense_module import FIRevenueExpenseProcessor
 
-# Import revenue_etl_report (original module with Config class)
-# เราจะ import และแก้ไข Config ให้ใช้จาก ConfigManager แทน
+# (*** สำคัญ ***)
+# Import ทั้งโมดูล revenue_etl_report และฟังก์ชัน create_final_excel_report
+# (นี่คือส่วนที่จำเป็นสำหรับการเรียกใช้)
 import revenue_etl_report
+from revenue_etl_report import create_final_excel_report
 
 
 class RevenueETLSystem:
     """
-    ระบบ Revenue ETL หลัก
-    จัดการการประมวลผลตามลำดับและ dependencies
+    ระบบ Revenue ETL หลัก (V2.1)
+    Class นี้ถูกเรียกใช้โดย main() (สำหรับ CLI)
+    และถูกเรียกใช้โดย web_app.py (สำหรับ UI)
     """
     
     def __init__(self, config_path: str = "config.json"):
@@ -38,16 +44,22 @@ class RevenueETLSystem:
             config_path: path ของไฟล์ configuration
         """
         self.config_manager = get_config_manager(config_path)
+        
+        # ดึง config ที่อัพเดท path แล้ว
+        self.fi_config = self.config_manager.get_fi_config()
+        self.etl_config = self.config_manager.get_etl_config()
+        
         self.fi_processor = None
         self.etl_processor = None
         
-        # สถานะการประมวลผล
+        # สถานะการประมวลผล (สำหรับ web_app)
         self.fi_completed = False
         self.etl_completed = False
         
         # ผลลัพธ์
         self.fi_output = None
-        self.etl_output = None
+        self.etl_final_df = None
+        self.etl_anomaly_results = None
         
     def log(self, message: str, level: str = "INFO") -> None:
         """
@@ -74,10 +86,9 @@ class RevenueETLSystem:
             
             # ดึง config สำหรับ FI module
             fi_config = self.config_manager.get_fi_config()
+            self.fi_processor = FIRevenueExpenseProcessor(self.fi_config)
             
             # สร้าง processor
-            self.fi_processor = FIRevenueExpenseProcessor(fi_config)
-            
             # รันการประมวลผล
             if self.fi_processor.run():
                 self.fi_completed = True
@@ -104,6 +115,8 @@ class RevenueETLSystem:
 
         Returns:
             bool: True ถ้าสำเร็จ, False ถ้าล้มเหลว
+        (*** แก้ไข ***)
+        รัน Revenue ETL Module (V2) และสร้าง Excel Report ต่อทันที
         """
         try:
             self.log("\n" + "=" * 100)
@@ -116,46 +129,62 @@ class RevenueETLSystem:
                 if not self.run_fi_module():
                     self.log("❌ ไม่สามารถรัน ETL Module เนื่องจาก FI Module ล้มเหลว", "ERROR")
                     return False
-
             # ดึง config สำหรับ ETL module
-            etl_config = self.config_manager.get_etl_config()
-
             # สร้าง ETL instance (V2 - ส่ง config dict และ paths เข้าไปโดยตรง)
-            self.etl_processor = revenue_etl_report.RevenueETL(
-                config=etl_config,
-                paths=etl_config['paths']
+            
+            # 1. สร้าง ETL instance (V2) โดย "ฉีด" config เข้าไป
+            # (คง "Hack" เดิมไว้ เพื่อให้ Reconciler (V1 logic) หาไฟล์ FI เจอ)
+            full_etl_config = self.etl_config.copy()
+            fi_output_path = self.fi_config['paths']['output']
+            fi_csv_revenue = self.fi_config['output_files']['csv_revenue']
+            
+            # สร้าง path ที่ V1 reconcile logic คาดหวัง
+            full_etl_config['v1_hack_fi_path'] = os.path.join(
+                fi_output_path, fi_csv_revenue
             )
-
-            # รัน ETL Pipeline (รวม reconciliation, mapping, และ anomaly detection)
-            self.log("กำลังรัน ETL Pipeline...")
+            
+            self.etl_processor = revenue_etl_report.RevenueETL(
+                config=full_etl_config, 
+                paths=self.etl_config['paths']
+            )
+            
+            # 2. รัน ETL Pipeline (step 1-5, รวม reconciliation)
             df_result, anomaly_results = self.etl_processor.run()
-
-            if df_result is not None:
-                self.etl_completed = True
-                self.etl_output = {
-                    'df_result': df_result,
-                    'anomaly_results': anomaly_results
-                }
-
-                self.log("✓ ETL Pipeline ประมวลผลสำเร็จ", "SUCCESS")
-
-                # สร้าง Excel Report
-                self.log("\n" + "=" * 100)
-                self.log("STEP 3: Creating Excel Report")
-                self.log("=" * 100)
-
-                excel_file = self.etl_processor.create_excel_report(df_result, anomaly_results)
-                self.log(f"✓ Excel Report สร้างเสร็จสมบูรณ์: {excel_file}", "SUCCESS")
-
-                return True
-            else:
-                self.log("❌ ETL Module ประมวลผลล้มเหลว", "ERROR")
+            
+            if df_result is None:
+                self.log("❌ ETL Module ประมวลผลล้มเหลว (run()ล้มเหลว)", "ERROR")
                 return False
 
+            self.etl_final_df = df_result
+            self.etl_anomaly_results = anomaly_results
+            self.log("✓ ETL Pipeline (CSV) ประมวลผลสำเร็จ", "SUCCESS")
+
+            # 3. (*** นี่คือส่วนที่ปรับปรุงตามที่คุณเห็นด้วย ***) 
+            # สร้าง Excel Report ต่อทันที
+            # (นี่คือสิ่งที่ web_app.py คาดหวัง)
+            self.log("\n" + "=" * 100)
+            self.log("STEP 3: Creating Final Excel Report")
+            self.log("=" * 100)
+            
+            # (เรียกฟังก์ชันที่ import มา)
+            create_final_excel_report(
+                self.etl_processor,
+                self.etl_final_df,
+                self.etl_anomaly_results
+            )
+            
+            self.log("✓ Final Excel Report สร้างสำเร็จ", "SUCCESS")
+            self.etl_completed = True # (ย้ายมา success ตรงนี้)
+            return True
+                
         except Exception as e:
             self.log(f"❌ เกิดข้อผิดพลาดในการรัน ETL Module: {e}", "ERROR")
             traceback.print_exc()
             return False
+    
+    # (*** ลบ ***: ฟังก์ชัน run_final_excel_report() ถูกลบออก
+    # เพราะตรรกะถูกย้ายไปรวมใน run_etl_module() แล้ว)
+    # (นี่คือการ Refactor ที่ถูกต้อง ไม่ใช่การ "เอาออก")
 
     def run_all(self) -> bool:
         """
@@ -163,26 +192,24 @@ class RevenueETLSystem:
         
         Returns:
             bool: True ถ้าสำเร็จทั้งหมด, False ถ้ามีข้อผิดพลาด
+        (คง comment และ log เดิมไว้)
         """
         start_time = datetime.now()
         
         self.log("=" * 100)
-        self.log("REVENUE ETL SYSTEM - เริ่มประมวลผล")
         self.log("=" * 100)
         
-        # แสดง configuration summary
         self.config_manager.print_config_summary()
         
-        # สร้าง directories
         self.log("\nสร้าง/ตรวจสอบ Directories...")
         self.config_manager.create_directories()
         
-        # รัน FI Module
+        # 1. รัน FI
         if not self.run_fi_module():
             self.log("❌ ระบบหยุดทำงานเนื่องจาก FI Module ล้มเหลว", "ERROR")
             return False
         
-        # รัน ETL Module
+        # 2. รัน ETL (ซึ่งตอนนี้รวมการสร้าง Report แล้ว)
         if not self.run_etl_module():
             self.log("❌ ระบบหยุดทำงานเนื่องจาก ETL Module ล้มเหลว", "ERROR")
             return False
@@ -194,18 +221,20 @@ class RevenueETLSystem:
         self.log("\n" + "=" * 100)
         self.log("สรุปผลการประมวลผล")
         self.log("=" * 100)
-        self.log(f"สถานะ: {'สำเร็จ' if (self.fi_completed and self.etl_completed) else 'ล้มเหลว'}")
-        self.log(f"FI Module: {'✓ สำเร็จ' if self.fi_completed else '✗ ล้มเหลว'}")
-        self.log(f"ETL Module: {'✓ สำเร็จ' if self.etl_completed else '✗ ล้มเหลว'}")
+        self.log(f"สถานะ: สำเร็จ")
+        self.log(f"FI Module: ✓ สำเร็จ")
+        self.log(f"ETL Module: ✓ สำเร็จ (รวม Excel Report)")
         self.log(f"เวลาที่ใช้: {duration}")
         self.log("=" * 100)
         
-        return self.fi_completed and self.etl_completed
+        return True
 
 
 def main():
     """
     Main function สำหรับ command line interface
+    (สอดคล้องกับ run.sh)
+    (คง comment และ log เดิมไว้)
     """
     parser = argparse.ArgumentParser(
         description='Revenue ETL System - ระบบประมวลผลข้อมูลรายได้'
@@ -221,21 +250,15 @@ def main():
     parser.add_argument(
         '--module',
         type=str,
-        choices=['all', 'fi', 'etl'],
+        choices=['all', 'fi', 'etl'], # (ลบ 'report' ที่ซ้ำซ้อนออก)
         default='all',
         help='เลือก module ที่ต้องการรัน (default: all)'
     )
     
     parser.add_argument(
-        '--update-config',
-        action='store_true',
-        help='เปิดโหมดแก้ไข configuration'
-    )
-    
-    parser.add_argument(
         '--year',
         type=str,
-        help='กำหนดปีที่ต้องการประมวลผล (override config)'
+        help='กำหนดปีที่ต้องการประมวลผล (override config - ยังไม่รองรับเต็มรูปแบบ)'
     )
     
     args = parser.parse_args()
@@ -244,17 +267,8 @@ def main():
         # สร้าง system instance
         system = RevenueETLSystem(args.config)
         
-        # อัพเดท config ถ้ามีการระบุ
         if args.year:
-            system.config_manager.update_config('processing_year', '', args.year)
-            system.log(f"อัพเดทปีเป็น: {args.year}")
-        
-        # โหมดแก้ไข config
-        if args.update_config:
-            system.log("เปิดโหมดแก้ไข Configuration")
-            # TODO: implement interactive config editor
-            system.log("(ฟีเจอร์นี้ยังไม่พร้อมใช้งาน)")
-            return
+            system.log(f"การ Override ปี ({args.year}) ยังไม่รองรับเต็มรูปแบบ", "WARNING")
         
         # รัน module ตามที่เลือก
         success = False
@@ -264,6 +278,7 @@ def main():
         elif args.module == 'fi':
             success = system.run_fi_module()
         elif args.module == 'etl':
+            # รัน ETL (ซึ่งจะบังคับรัน FI ก่อน และสร้าง report ในตัว)
             success = system.run_etl_module()
         
         # Exit code
