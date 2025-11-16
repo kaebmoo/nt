@@ -136,9 +136,10 @@ class RevenueETLSystem:
             fi_csv_revenue = self.fi_config['output_files']['csv_revenue']
             
             # สร้าง path ที่ V1 reconcile logic คาดหวัง
-            full_etl_config['v1_hack_fi_path'] = os.path.join(
-                fi_output_path, fi_csv_revenue
-            )
+            # full_etl_config['v1_hack_fi_path'] = os.path.join(
+            #     fi_output_path, fi_csv_revenue
+            # )
+            # มันสร้างมาทำไมวะ ไม่ได้ใช้?
             
             self.etl_processor = revenue_etl_report.RevenueETL(
                 config=full_etl_config, 
