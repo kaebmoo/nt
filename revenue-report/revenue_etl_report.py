@@ -1475,686 +1475,654 @@ class RevenueETL:
             self.log("=" * 80)
             
             return df_final, anomaly_results
-            
+
         except Exception as e:
             self.log(f"❌ เกิดข้อผิดพลาดร้ายแรงใน ETL Pipeline: {str(e)}")
             import traceback
             traceback.print_exc()
             raise
 
-
-# ============================================================================
-# Main Execution
-# ============================================================================
-if __name__ == "__main__":
-    import numpy as np
-    try:
-        from openpyxl import load_workbook
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from openpyxl.utils import get_column_letter
-    except ImportError:
-        print("="*80)
-        print("❌ ไม่พบโมดูล openpyxl")
-        print("  โปรดติดตั้งด้วยคำสั่ง: pip install openpyxl")
-        print("  ไม่สามารถสร้างหรือจัดรูปแบบไฟล์ Excel ได้")
-        print("="*80)
-        # สิ้นสุดการทำงานถ้าไม่มี openpyxl
-        exit()
-        
-    from datetime import datetime
-    
-    # สร้าง ETL instance และรัน Pipeline
-    etl = RevenueETL()
-    df_result, anomaly_results = etl.run()
-
-    historical_anomalies = {}
-    if Config.ENABLE_HISTORICAL_HIGHLIGHT:
-        historical_anomalies = etl.detect_historical_anomalies(df_result)
-    
-    # ดึงข้อมูล YTD ที่โหลดไว้ใน step 4
-    df_adj_ytd = etl.df_adj_ytd
-    
-    print("\n" + "=" * 80)
-    print("สร้าง Excel Report...")
-    print("=" * 80)
-    
-    # ============================================================================
-    # กำหนดชื่อไฟล์ Excel ที่เดียว
-    # ============================================================================
-    excel_output_file = os.path.join(
-        etl.paths["final_output"], 
-        f"revenue_report_{Config.YEAR}.xlsx"
-    )
-    print(f"ไฟล์ Excel ที่จะสร้าง: {excel_output_file}")
-    
-    # ============================================================================
-    # สร้าง Excel Report
-    # ============================================================================
-    
-    # อ่านข้อมูล
-    df = df_result.copy()
-    
-    # Aggregate ข้อมูลตาม hierarchy และเดือน
-    # (ตอนนี้ agg_data จะมี NEW_ADJ_BUSINESS_GROUP รวมอยู่ด้วย)
-    agg_data = df.groupby([
-        'ITEM', 'BUSINESS_GROUP', 
-        'SUB_ITEM', 'SERVICE_GROUP', 
-        'PRODUCT_KEY', 'PRODUCT_NAME',
-        'YEAR', 'MONTH'
-    ])['AMOUNT'].sum().reset_index()
-    
-    # แปลง MONTH เป็น int
-    agg_data['MONTH'] = agg_data['MONTH'].astype(int)
-    
-    # สร้างคอลัมน์วันที่ในรูปแบบ DD/MM/YYYY
-    agg_data['DATE_STR'] = agg_data.apply(
-        lambda row: f"01/{row['MONTH']:02d}/{row['YEAR']}", 
-        axis=1
-    )
-    
-
-    # [== START MODIFICATION: อัปเกรด create_report ==]
-    def create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=True):
+    def create_excel_report(self, df_result, anomaly_results, excel_output_file=None):
         """
-        สร้างรายงานรายเดือน
-        เวอร์ชันอัปเกรด:
-        - รวม ANOMALY_STATUS
-        - เพิ่มแถว "รวมรายได้จากการให้บริการ"
-        - เพิ่มกลุ่ม "ผลตอบแทนทางการเงินและรายได้อื่น"
-        - ใช้ YTD สำหรับคอลัมน์ "ผลรวม" ของกลุ่ม ADJ
+        สร้าง Excel Report พร้อม Pivot Table และ Formatting
+
+        Args:
+            df_result: DataFrame ผลลัพธ์จาก ETL Pipeline
+            anomaly_results: Dictionary ของ anomaly detection results
+            excel_output_file: Optional path สำหรับไฟล์ Excel output (ถ้าไม่ระบุจะใช้ default)
+
+        Returns:
+            str: Path ของไฟล์ Excel ที่สร้างเสร็จ
         """
-        
-        print(f"  กำลังสร้างรายงาน (sort_ascending={sort_ascending})...")
-        
-        # --- 1. สร้าง Anomaly Maps ---
-        print("    กำลังสร้าง Anomaly Maps...")
+        # Import dependencies
+        import numpy as np
         try:
-            # Product Map
-            df_prod = anomaly_results['product'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'ANOMALY_STATUS']]
-            prod_map = df_prod.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY'])['ANOMALY_STATUS'].to_dict()
-            
-            # Service Map
-            df_serv = anomaly_results['service'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'ANOMALY_STATUS']]
-            serv_map = df_serv.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP'])['ANOMALY_STATUS'].to_dict()
-            
-            # Business Map
-            df_biz = anomaly_results['business'][['BUSINESS_GROUP', 'ANOMALY_STATUS']]
-            biz_map = df_biz.set_index(['BUSINESS_GROUP'])['ANOMALY_STATUS'].to_dict()
-            
-            # Grand Total Status
-            grand_total_status = anomaly_results['grand_total']['ANOMALY_STATUS'].values[0]
-            
-        except KeyError as e:
-            print(f"    Warning: ไม่พบ anomaly key {e}, จะใช้ค่าว่าง")
-            prod_map, serv_map, biz_map, grand_total_status = {}, {}, {}, ''
-        except Exception as e:
-            print(f"    Error creating anomaly maps: {e}")
-            prod_map, serv_map, biz_map, grand_total_status = {}, {}, {}, ''
-        
-        # --- 2. สร้าง YTD Map ---
-        print("    กำลังสร้าง YTD data map...")
-        ytd_map = {}
-        if df_adj_ytd is not None and not df_adj_ytd.empty:
-            
-            # [ START FIX ]
-            # จัดการคอลัมน์ 'TYPE' และ 'REVENUE_TYPE' ที่อาจซ้ำซ้อนกัน
-            if "REVENUE_TYPE" in df_adj_ytd.columns and "TYPE" in df_adj_ytd.columns:
-                print("    YTD Map: พบทั้ง 'TYPE' และ 'REVENUE_TYPE', ทำการรวม...")
-                df_adj_ytd['TYPE'] = df_adj_ytd['TYPE'].fillna(df_adj_ytd['REVENUE_TYPE'])
-                df_adj_ytd = df_adj_ytd.drop(columns=['REVENUE_TYPE'])
-            elif "REVENUE_TYPE" in df_adj_ytd.columns:
-                print("    YTD Map: พบ 'REVENUE_TYPE', ทำการเปลี่ยนชื่อเป็น 'TYPE'...")
-                df_adj_ytd = df_adj_ytd.rename(columns={"REVENUE_TYPE": "TYPE"})
-            # [ END FIX ]
+            from openpyxl import load_workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            print("="*80)
+            print("❌ ไม่พบโมดูล openpyxl")
+            print("  โปรดติดตั้งด้วยคำสั่ง: pip install openpyxl")
+            print("  ไม่สามารถสร้างหรือจัดรูปแบบไฟล์ Excel ได้")
+            print("="*80)
+            raise ImportError("openpyxl is required for creating Excel reports")
 
-            if "TYPE" in df_adj_ytd.columns:
-                # Sum by TYPE เผื่อมีหลายแถว (บรรทัดนี้คือจุดที่เคยเกิด Error)
-                ytd_summary = df_adj_ytd.groupby("TYPE")["REVENUE_VALUE"].sum()
-                ytd_map[Config.FINANCIAL_INCOME_NAME] = ytd_summary.get(Config.FINANCIAL_INCOME_NAME, 0)
-                ytd_map[Config.OTHER_REVENUE_ADJ_NAME] = ytd_summary.get(Config.OTHER_REVENUE_ADJ_NAME, 0)
-            else:
-                print("    Warning: ไม่พบคอลัมน์ 'TYPE' ในไฟล์ YTD")
-        
-        print(f"    YTD Map: {ytd_map}")
+        # Detect historical anomalies
+        historical_anomalies = {}
+        if self.config.ENABLE_HISTORICAL_HIGHLIGHT:
+            self.log("กำลังตรวจสอบ Historical Anomalies...")
+            historical_anomalies = self.detect_historical_anomalies(df_result)
 
-        
-        # --- 3. เรียงข้อมูลและ Pivot ---
-        if sort_ascending:
-            agg_data_sorted = agg_data.sort_values(['YEAR', 'MONTH'], ascending=[True, True])
-        else:
-            agg_data_sorted = agg_data.sort_values(['YEAR', 'MONTH'], ascending=[True, False])
-        
-        pivot = agg_data_sorted.pivot_table(
-            index=['ITEM', 'BUSINESS_GROUP', 'SUB_ITEM', 'SERVICE_GROUP', 'PRODUCT_KEY', 'PRODUCT_NAME'],
-            columns='DATE_STR',
-            values='AMOUNT',
-            aggfunc='sum',
-            fill_value=0
+        # ดึงข้อมูล YTD ที่โหลดไว้ใน step 4
+        df_adj_ytd = self.df_adj_ytd
+
+        print("\n" + "=" * 80)
+        print("สร้าง Excel Report...")
+        print("=" * 80)
+
+        # กำหนดชื่อไฟล์ Excel
+        if excel_output_file is None:
+            excel_output_file = os.path.join(
+                self.paths["final_output"],
+                f"revenue_report_{self.config.YEAR}.xlsx"
+            )
+        print(f"ไฟล์ Excel ที่จะสร้าง: {excel_output_file}")
+
+        # Aggregate ข้อมูลตาม hierarchy และเดือน
+        df = df_result.copy()
+        agg_data = df.groupby([
+            'ITEM', 'BUSINESS_GROUP',
+            'SUB_ITEM', 'SERVICE_GROUP',
+            'PRODUCT_KEY', 'PRODUCT_NAME',
+            'YEAR', 'MONTH'
+        ])['AMOUNT'].sum().reset_index()
+
+        # แปลง MONTH เป็น int
+        agg_data['MONTH'] = agg_data['MONTH'].astype(int)
+
+        # สร้างคอลัมน์วันที่ในรูปแบบ DD/MM/YYYY
+        agg_data['DATE_STR'] = agg_data.apply(
+            lambda row: f"01/{row['MONTH']:02d}/{row['YEAR']}",
+            axis=1
         )
-        
-        month_cols = agg_data_sorted['DATE_STR'].unique().tolist()
-        pivot = pivot[month_cols]
-        
-        # คำนวณผลรวม (Sum(เดือน)) สำหรับทุกแถว
-        pivot.insert(0, 'ผลรวม', pivot.sum(axis=1))
-        result = pivot.reset_index()
 
-        
-        # --- 4. สร้าง DataFrame สุดท้ายพร้อม Status ---
-        rows = []
-        
-        # แยกกลุ่ม NT1 ปกติ และกลุ่ม ADJ
-        standard_groups_df = result[result['BUSINESS_GROUP'] != Config.NEW_ADJ_BUSINESS_GROUP]
-        adj_group_df = result[result['BUSINESS_GROUP'] == Config.NEW_ADJ_BUSINESS_GROUP]
-        
-        grouped_items = standard_groups_df.groupby(['ITEM', 'BUSINESS_GROUP'])
-        
-        # ตัวแปรสำหรับเก็บข้อมูลเพื่อคำนวณ "รวมรายได้จากการให้บริการ"
-        total_service_revenue_data = pd.DataFrame() 
-        
-        # --- 4a. ประมวลผลกลุ่มธุรกิจปกติ (NT1) ---
-        print("    ประมวลผลกลุ่มธุรกิจปกติ (NT1)")
-        for (item, business_group), item_data in grouped_items:
-            grouped_sub_items = item_data.groupby(['SUB_ITEM', 'SERVICE_GROUP'])
-            
-            for (sub_item, service_group), sub_item_data in grouped_sub_items:
-                # เพิ่มแถวของแต่ละ product
-                for _, row in sub_item_data.iterrows():
-                    
-                    prod_key = (row['BUSINESS_GROUP'], row['SERVICE_GROUP'], row['PRODUCT_KEY'])
-                    prod_status = prod_map.get(prod_key, '')
-                    
-                    row_dict = {
-                        'กลุ่มธุรกิจ': row['BUSINESS_GROUP'],
-                        'กลุ่มบริการ': row['SERVICE_GROUP'],
-                        'รหัสบริการ': row['PRODUCT_KEY'],
-                        'ชื่อบริการ': row['PRODUCT_NAME'],
+        # ========================================================================
+        # Nested function: create_report
+        # ========================================================================
+        def create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=True):
+            """
+            สร้างรายงานรายเดือน
+            เวอร์ชันอัปเกรด:
+            - รวม ANOMALY_STATUS
+            - เพิ่มแถว "รวมรายได้จากการให้บริการ"
+            - เพิ่มกลุ่ม "ผลตอบแทนทางการเงินและรายได้อื่น"
+            - ใช้ YTD สำหรับคอลัมน์ "ผลรวม" ของกลุ่ม ADJ
+            """
+
+            print(f"  กำลังสร้างรายงาน (sort_ascending={sort_ascending})...")
+
+            # --- 1. สร้าง Anomaly Maps ---
+            print("    กำลังสร้าง Anomaly Maps...")
+            try:
+                # Product Map
+                df_prod = anomaly_results['product'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'ANOMALY_STATUS']]
+                prod_map = df_prod.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY'])['ANOMALY_STATUS'].to_dict()
+
+                # Service Map
+                df_serv = anomaly_results['service'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'ANOMALY_STATUS']]
+                serv_map = df_serv.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP'])['ANOMALY_STATUS'].to_dict()
+
+                # Business Map
+                df_biz = anomaly_results['business'][['BUSINESS_GROUP', 'ANOMALY_STATUS']]
+                biz_map = df_biz.set_index(['BUSINESS_GROUP'])['ANOMALY_STATUS'].to_dict()
+
+                # Grand Total Status
+                grand_total_status = anomaly_results['grand_total']['ANOMALY_STATUS'].values[0]
+
+            except KeyError as e:
+                print(f"    Warning: ไม่พบ anomaly key {e}, จะใช้ค่าว่าง")
+                prod_map, serv_map, biz_map, grand_total_status = {}, {}, {}, ''
+            except Exception as e:
+                print(f"    Error creating anomaly maps: {e}")
+                prod_map, serv_map, biz_map, grand_total_status = {}, {}, {}, ''
+
+            # --- 2. สร้าง YTD Map ---
+            print("    กำลังสร้าง YTD data map...")
+            ytd_map = {}
+            if df_adj_ytd is not None and not df_adj_ytd.empty:
+
+                # จัดการคอลัมน์ 'TYPE' และ 'REVENUE_TYPE' ที่อาจซ้ำซ้อนกัน
+                if "REVENUE_TYPE" in df_adj_ytd.columns and "TYPE" in df_adj_ytd.columns:
+                    print("    YTD Map: พบทั้ง 'TYPE' และ 'REVENUE_TYPE', ทำการรวม...")
+                    df_adj_ytd['TYPE'] = df_adj_ytd['TYPE'].fillna(df_adj_ytd['REVENUE_TYPE'])
+                    df_adj_ytd = df_adj_ytd.drop(columns=['REVENUE_TYPE'])
+                elif "REVENUE_TYPE" in df_adj_ytd.columns:
+                    print("    YTD Map: พบ 'REVENUE_TYPE', ทำการเปลี่ยนชื่อเป็น 'TYPE'...")
+                    df_adj_ytd = df_adj_ytd.rename(columns={"REVENUE_TYPE": "TYPE"})
+
+                if "TYPE" in df_adj_ytd.columns:
+                    # Sum by TYPE เผื่อมีหลายแถว
+                    ytd_summary = df_adj_ytd.groupby("TYPE")["REVENUE_VALUE"].sum()
+                    ytd_map[Config.FINANCIAL_INCOME_NAME] = ytd_summary.get(Config.FINANCIAL_INCOME_NAME, 0)
+                    ytd_map[Config.OTHER_REVENUE_ADJ_NAME] = ytd_summary.get(Config.OTHER_REVENUE_ADJ_NAME, 0)
+                else:
+                    print("    Warning: ไม่พบคอลัมน์ 'TYPE' ในไฟล์ YTD")
+
+            print(f"    YTD Map: {ytd_map}")
+
+            # --- 3. เรียงข้อมูลและ Pivot ---
+            if sort_ascending:
+                agg_data_sorted = agg_data.sort_values(['YEAR', 'MONTH'], ascending=[True, True])
+            else:
+                agg_data_sorted = agg_data.sort_values(['YEAR', 'MONTH'], ascending=[True, False])
+
+            pivot = agg_data_sorted.pivot_table(
+                index=['ITEM', 'BUSINESS_GROUP', 'SUB_ITEM', 'SERVICE_GROUP', 'PRODUCT_KEY', 'PRODUCT_NAME'],
+                columns='DATE_STR',
+                values='AMOUNT',
+                aggfunc='sum',
+                fill_value=0
+            )
+
+            month_cols = agg_data_sorted['DATE_STR'].unique().tolist()
+            pivot = pivot[month_cols]
+
+            # คำนวณผลรวม (Sum(เดือน)) สำหรับทุกแถว
+            pivot.insert(0, 'ผลรวม', pivot.sum(axis=1))
+            result = pivot.reset_index()
+
+            # --- 4. สร้าง DataFrame สุดท้ายพร้อม Status ---
+            rows = []
+
+            # แยกกลุ่ม NT1 ปกติ และกลุ่ม ADJ
+            standard_groups_df = result[result['BUSINESS_GROUP'] != Config.NEW_ADJ_BUSINESS_GROUP]
+            adj_group_df = result[result['BUSINESS_GROUP'] == Config.NEW_ADJ_BUSINESS_GROUP]
+
+            grouped_items = standard_groups_df.groupby(['ITEM', 'BUSINESS_GROUP'])
+
+            # ตัวแปรสำหรับเก็บข้อมูลเพื่อคำนวณ "รวมรายได้จากการให้บริการ"
+            total_service_revenue_data = pd.DataFrame()
+
+            # --- 4a. ประมวลผลกลุ่มธุรกิจปกติ (NT1) ---
+            print("    ประมวลผลกลุ่มธุรกิจปกติ (NT1)")
+            for (item, business_group), item_data in grouped_items:
+                grouped_sub_items = item_data.groupby(['SUB_ITEM', 'SERVICE_GROUP'])
+
+                for (sub_item, service_group), sub_item_data in grouped_sub_items:
+                    # เพิ่มแถวของแต่ละ product
+                    for _, row in sub_item_data.iterrows():
+
+                        prod_key = (row['BUSINESS_GROUP'], row['SERVICE_GROUP'], row['PRODUCT_KEY'])
+                        prod_status = prod_map.get(prod_key, '')
+
+                        row_dict = {
+                            'กลุ่มธุรกิจ': row['BUSINESS_GROUP'],
+                            'กลุ่มบริการ': row['SERVICE_GROUP'],
+                            'รหัสบริการ': row['PRODUCT_KEY'],
+                            'ชื่อบริการ': row['PRODUCT_NAME'],
+                        }
+
+                        if sort_ascending:
+                            row_dict['ผลรวม'] = row['ผลรวม']
+                            for col in month_cols:
+                                row_dict[col] = row[col]
+                            row_dict['ANOMALY_STATUS'] = prod_status
+                        else:
+                            row_dict['ผลรวม'] = row['ผลรวม']
+                            row_dict['ANOMALY_STATUS'] = prod_status
+                            for col in month_cols:
+                                row_dict[col] = row[col]
+
+                        rows.append(row_dict)
+
+                    # เพิ่มแถวผลรวมของกลุ่มบริการ
+                    serv_key = (business_group, service_group)
+                    serv_status = serv_map.get(serv_key, '')
+
+                    sum_row = {
+                        'กลุ่มธุรกิจ': '',
+                        'กลุ่มบริการ': f'รวม {service_group}',
+                        'รหัสบริการ': '',
+                        'ชื่อบริการ': '',
                     }
-                    
+
                     if sort_ascending:
-                        row_dict['ผลรวม'] = row['ผลรวม'] # ใช้ผลรวมปกติ (sum(เดือน))
+                        sum_row['ผลรวม'] = sub_item_data['ผลรวม'].sum()
                         for col in month_cols:
-                            row_dict[col] = row[col]
-                        row_dict['ANOMALY_STATUS'] = prod_status
+                            sum_row[col] = sub_item_data[col].sum()
+                        sum_row['ANOMALY_STATUS'] = serv_status
                     else:
-                        row_dict['ผลรวม'] = row['ผลรวม'] # ใช้ผลรวมปกติ (sum(เดือน))
-                        row_dict['ANOMALY_STATUS'] = prod_status
+                        sum_row['ผลรวม'] = sub_item_data['ผลรวม'].sum()
+                        sum_row['ANOMALY_STATUS'] = serv_status
                         for col in month_cols:
-                            row_dict[col] = row[col]
-                    
-                    rows.append(row_dict)
-                
-                # เพิ่มแถวผลรวมของกลุ่มบริการ
-                serv_key = (business_group, service_group)
-                serv_status = serv_map.get(serv_key, '')
-                
+                            sum_row[col] = sub_item_data[col].sum()
+
+                    rows.append(sum_row)
+
+                    # เก็บข้อมูลสำหรับ "รวมรายได้จากการให้บริการ"
+                    if service_group != Config.NON_TELECOM_SERVICE_GROUP:
+                        total_service_revenue_data = pd.concat([
+                            total_service_revenue_data,
+                            sub_item_data
+                        ])
+
+                # เพิ่มแถวผลรวมของกลุ่มธุรกิจ
+                biz_key = business_group
+                biz_status = biz_map.get(biz_key, '')
+
                 sum_row = {
-                    'กลุ่มธุรกิจ': '',
-                    'กลุ่มบริการ': f'รวม {service_group}',
+                    'กลุ่มธุรกิจ': f'รวม {business_group}',
+                    'กลุ่มบริการ': '',
                     'รหัสบริการ': '',
                     'ชื่อบริการ': '',
                 }
 
                 if sort_ascending:
-                    sum_row['ผลรวม'] = sub_item_data['ผลรวม'].sum()
+                    sum_row['ผลรวม'] = item_data['ผลรวม'].sum()
                     for col in month_cols:
-                        sum_row[col] = sub_item_data[col].sum()
-                    sum_row['ANOMALY_STATUS'] = serv_status
+                        sum_row[col] = item_data[col].sum()
+                    sum_row['ANOMALY_STATUS'] = biz_status
                 else:
-                    sum_row['ผลรวม'] = sub_item_data['ผลรวม'].sum()
-                    sum_row['ANOMALY_STATUS'] = serv_status
+                    sum_row['ผลรวม'] = item_data['ผลรวม'].sum()
+                    sum_row['ANOMALY_STATUS'] = biz_status
                     for col in month_cols:
-                        sum_row[col] = sub_item_data[col].sum()
-                
+                        sum_row[col] = item_data[col].sum()
+
                 rows.append(sum_row)
 
-                # เก็บข้อมูลสำหรับ "รวมรายได้จากการให้บริการ"
-                if service_group != Config.NON_TELECOM_SERVICE_GROUP:
-                    total_service_revenue_data = pd.concat([
-                        total_service_revenue_data, 
-                        sub_item_data
-                    ])
-            
-            # เพิ่มแถวผลรวมของกลุ่มธุรกิจ
-            biz_key = business_group
-            biz_status = biz_map.get(biz_key, '')
-            
-            sum_row = {
-                'กลุ่มธุรกิจ': f'รวม {business_group}',
+            # --- 4b. เพิ่มแถว "รวมรายได้จากการให้บริการ" ---
+            print("    เพิ่มแถว 'รวมรายได้จากการให้บริการ'")
+            sum_row_service = {
+                'กลุ่มธุรกิจ': 'รวมรายได้จากการให้บริการ',
                 'กลุ่มบริการ': '',
                 'รหัสบริการ': '',
                 'ชื่อบริการ': '',
             }
 
             if sort_ascending:
-                sum_row['ผลรวม'] = item_data['ผลรวม'].sum()
+                sum_row_service['ผลรวม'] = total_service_revenue_data['ผลรวม'].sum()
                 for col in month_cols:
-                    sum_row[col] = item_data[col].sum()
-                sum_row['ANOMALY_STATUS'] = biz_status
+                    sum_row_service[col] = total_service_revenue_data[col].sum()
+                sum_row_service['ANOMALY_STATUS'] = ''
             else:
-                sum_row['ผลรวม'] = item_data['ผลรวม'].sum()
-                sum_row['ANOMALY_STATUS'] = biz_status
+                sum_row_service['ผลรวม'] = total_service_revenue_data['ผลรวม'].sum()
+                sum_row_service['ANOMALY_STATUS'] = ''
                 for col in month_cols:
-                    sum_row[col] = item_data[col].sum()
-            
-            rows.append(sum_row)
-        
-        # --- 4b. เพิ่มแถว "รวมรายได้จากการให้บริการ" ---
-        print("    เพิ่มแถว 'รวมรายได้จากการให้บริการ'")
-        sum_row_service = {
-            'กลุ่มธุรกิจ': 'รวมรายได้จากการให้บริการ',
-            'กลุ่มบริการ': '',
-            'รหัสบริการ': '',
-            'ชื่อบริการ': '',
-        }
+                    sum_row_service[col] = total_service_revenue_data[col].sum()
 
-        if sort_ascending:
-            sum_row_service['ผลรวม'] = total_service_revenue_data['ผลรวม'].sum()
-            for col in month_cols:
-                sum_row_service[col] = total_service_revenue_data[col].sum()
-            sum_row_service['ANOMALY_STATUS'] = '' # ไม่มี Anomaly
-        else:
-            sum_row_service['ผลรวม'] = total_service_revenue_data['ผลรวม'].sum()
-            sum_row_service['ANOMALY_STATUS'] = '' # ไม่มี Anomaly
-            for col in month_cols:
-                sum_row_service[col] = total_service_revenue_data[col].sum()
-        
-        rows.append(sum_row_service)
+            rows.append(sum_row_service)
 
-        # --- 4c. ประมวลผลกลุ่ม ADJ ---
-        print("    ประมวลผลกลุ่ม 'ผลตอบแทนทางการเงินและรายได้อื่น'")
-        if not adj_group_df.empty:
-            # เพิ่มแถวหัวข้อกลุ่ม
-            adj_header_row = {
-                'กลุ่มธุรกิจ': Config.NEW_ADJ_BUSINESS_GROUP,
-                'กลุ่มบริการ': '', 'รหัสบริการ': '', 'ชื่อบริการ': ''
-            }
-            if sort_ascending:
-                adj_header_row['ผลรวม'] = ''
-                for col in month_cols: adj_header_row[col] = ''
-                adj_header_row['ANOMALY_STATUS'] = ''
-            else:
-                adj_header_row['ผลรวม'] = ''
-                adj_header_row['ANOMALY_STATUS'] = ''
-                for col in month_cols: adj_header_row[col] = ''
-            rows.append(adj_header_row)
+            # --- 4c. ประมวลผลกลุ่ม ADJ ---
+            print("    ประมวลผลกลุ่ม 'ผลตอบแทนทางการเงินและรายได้อื่น'")
+            if not adj_group_df.empty:
+                # เพิ่มแถวหัวข้อกลุ่ม
+                adj_header_row = {
+                    'กลุ่มธุรกิจ': Config.NEW_ADJ_BUSINESS_GROUP,
+                    'กลุ่มบริการ': '', 'รหัสบริการ': '', 'ชื่อบริการ': ''
+                }
+                if sort_ascending:
+                    adj_header_row['ผลรวม'] = ''
+                    for col in month_cols: adj_header_row[col] = ''
+                    adj_header_row['ANOMALY_STATUS'] = ''
+                else:
+                    adj_header_row['ผลรวม'] = ''
+                    adj_header_row['ANOMALY_STATUS'] = ''
+                    for col in month_cols: adj_header_row[col] = ''
+                rows.append(adj_header_row)
 
-            # เรียงลำดับ (เผื่อสลับ)
-            adj_group_df = adj_group_df.sort_values(by='SERVICE_GROUP', ascending=True)
+                # เรียงลำดับ
+                adj_group_df = adj_group_df.sort_values(by='SERVICE_GROUP', ascending=True)
 
-            for _, row in adj_group_df.iterrows():
-                service_group = row['SERVICE_GROUP'] # "ผลตอบแทน..." or "รายได้อื่น"
-                
-                # Get anomaly status
-                serv_key = (Config.NEW_ADJ_BUSINESS_GROUP, service_group)
-                serv_status = serv_map.get(serv_key, '')
-                
-                row_dict = {
+                for _, row in adj_group_df.iterrows():
+                    service_group = row['SERVICE_GROUP']
+
+                    serv_key = (Config.NEW_ADJ_BUSINESS_GROUP, service_group)
+                    serv_status = serv_map.get(serv_key, '')
+
+                    row_dict = {
+                        'กลุ่มธุรกิจ': '',
+                        'กลุ่มบริการ': service_group,
+                        'รหัสบริการ': '',
+                        'ชื่อบริการ': '',
+                    }
+
+                    # ใช้ค่า YTD สำหรับคอลัมน์ "ผลรวม"
+                    ytd_value = ytd_map.get(service_group, 0)
+
+                    if sort_ascending:
+                        row_dict['ผลรวม'] = ytd_value
+                        for col in month_cols:
+                            row_dict[col] = row[col]
+                        row_dict['ANOMALY_STATUS'] = serv_status
+                    else:
+                        row_dict['ผลรวม'] = ytd_value
+                        row_dict['ANOMALY_STATUS'] = serv_status
+                        for col in month_cols:
+                            row_dict[col] = row[col]
+
+                    rows.append(row_dict)
+
+                # เพิ่มแถว "รวมผลตอบแทนทางการเงินและรายได้อื่น"
+                sum_adj_total_ytd = sum(ytd_map.values())
+
+                sum_row_adj = {
                     'กลุ่มธุรกิจ': '',
-                    'กลุ่มบริการ': service_group,
+                    'กลุ่มบริการ': 'รวมผลตอบแทนทางการเงินและรายได้อื่น',
                     'รหัสบริการ': '',
                     'ชื่อบริการ': '',
                 }
-                
-                # --- YTD LOGIC ---
-                # ดึงค่า YTD จาก map, ถ้าไม่มีใช้ 0
-                ytd_value = ytd_map.get(service_group, 0)
-                
-                if sort_ascending:
-                    row_dict['ผลรวม'] = ytd_value # << ใช้ค่า YTD
-                    for col in month_cols:
-                        row_dict[col] = row[col] # คอลัมน์เดือน ใช้ค่า sum ปกติ
-                    row_dict['ANOMALY_STATUS'] = serv_status
-                else:
-                    row_dict['ผลรวม'] = ytd_value # << ใช้ค่า YTD
-                    row_dict['ANOMALY_STATUS'] = serv_status
-                    for col in month_cols:
-                        row_dict[col] = row[col]
-                
-                rows.append(row_dict)
 
-            # [ START NEW CODE ]
-            # เพิ่มแถว "รวมผลตอบแทนทางการเงินและรายได้อื่น"
-            sum_adj_total_ytd = sum(ytd_map.values())
-            
-            sum_row_adj = {
-                'กลุ่มธุรกิจ': '',
-                'กลุ่มบริการ': 'รวมผลตอบแทนทางการเงินและรายได้อื่น',
+                biz_key = Config.NEW_ADJ_BUSINESS_GROUP
+                biz_status = biz_map.get(biz_key, '')
+
+                if sort_ascending:
+                    sum_row_adj['ผลรวม'] = sum_adj_total_ytd
+                    for col in month_cols:
+                        sum_row_adj[col] = adj_group_df[col].sum()
+                    sum_row_adj['ANOMALY_STATUS'] = biz_status
+                else:
+                    sum_row_adj['ผลรวม'] = sum_adj_total_ytd
+                    sum_row_adj['ANOMALY_STATUS'] = biz_status
+                    for col in month_cols:
+                        sum_row_adj[col] = adj_group_df[col].sum()
+
+                rows.append(sum_row_adj)
+
+            # --- 4d. เพิ่มแถวรวมทั้งสิ้น ---
+            print("    เพิ่มแถว 'รวมทั้งสิ้น'")
+
+            nt1_total = standard_groups_df['ผลรวม'].sum()
+            adj_total_ytd = sum(ytd_map.values())
+            report_grand_total = nt1_total + adj_total_ytd
+
+            sum_row = {
+                'กลุ่มธุรกิจ': 'รวมทั้งสิ้น',
+                'กลุ่มบริการ': '',
                 'รหัสบริการ': '',
                 'ชื่อบริการ': '',
             }
-            
-            # Get anomaly status for the whole ADJ group
-            biz_key = Config.NEW_ADJ_BUSINESS_GROUP
-            biz_status = biz_map.get(biz_key, '') # ใช้ Anomaly ของกลุ่มธุรกิจ
 
             if sort_ascending:
-                sum_row_adj['ผลรวม'] = sum_adj_total_ytd # Sum of YTD values
+                sum_row['ผลรวม'] = report_grand_total
                 for col in month_cols:
-                    sum_row_adj[col] = adj_group_df[col].sum() # Sum of monthly values
-                sum_row_adj['ANOMALY_STATUS'] = biz_status
+                    sum_row[col] = result[col].sum()
+                sum_row['ANOMALY_STATUS'] = grand_total_status
             else:
-                sum_row_adj['ผลรวม'] = sum_adj_total_ytd # Sum of YTD values
-                sum_row_adj['ANOMALY_STATUS'] = biz_status
+                sum_row['ผลรวม'] = report_grand_total
+                sum_row['ANOMALY_STATUS'] = grand_total_status
                 for col in month_cols:
-                    sum_row_adj[col] = adj_group_df[col].sum() # Sum of monthly values
-            
-            rows.append(sum_row_adj)
-            # [ END NEW CODE ]
+                    sum_row[col] = result[col].sum()
 
-        
-        # --- 4d. เพิ่มแถวรวมทั้งสิ้น ---
-        print("    เพิ่มแถว 'รวมทั้งสิ้น'")
-        
-        # "รวมทั้งสิ้น" = ผลรวม NT1 ทั้งหมด + ผลรวม YTD ของ ADJ
-        
-        # 1. ผลรวม NT1 (จาก standard_groups_df)
-        nt1_total = standard_groups_df['ผลรวม'].sum()
-        
-        # 2. ผลรวม YTD ของ ADJ (จาก ytd_map)
-        adj_total_ytd = sum(ytd_map.values())
-        
-        report_grand_total = nt1_total + adj_total_ytd
-        
-        sum_row = {
-            'กลุ่มธุรกิจ': 'รวมทั้งสิ้น',
-            'กลุ่มบริการ': '',
-            'รหัสบริการ': '',
-            'ชื่อบริการ': '',
-        }
-        
-        if sort_ascending:
-            sum_row['ผลรวม'] = report_grand_total # << ใช้ยอดรวมที่คำนวณใหม่
-            for col in month_cols:
-                sum_row[col] = result[col].sum() # ยอดรวมรายเดือน (NT1+ADJ)
-            sum_row['ANOMALY_STATUS'] = grand_total_status
-        else:
-            sum_row['ผลรวม'] = report_grand_total # << ใช้ยอดรวมที่คำนวณใหม่
-            sum_row['ANOMALY_STATUS'] = grand_total_status
-            for col in month_cols:
-                sum_row[col] = result[col].sum() # ยอดรวมรายเดือน (NT1+ADJ)
-        
-        rows.append(sum_row)
-        
-        return pd.DataFrame(rows)
-    
-    # [== END MODIFICATION ==]
+            rows.append(sum_row)
 
+            return pd.DataFrame(rows)
 
-    # สร้างรายงาน 2 แบบ
-    print("กำลังสร้างรายงาน...")
-    # **ส่ง df_adj_ytd เข้าไปใน function**
-    report_asc = create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=True)
-    report_desc = create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=False)
-    
-    
-    # บันทึกเป็น Excel (ใช้ตัวแปร excel_output_file)
-    try:
-        with pd.ExcelWriter(excel_output_file, engine='openpyxl') as writer:
-            report_asc.to_excel(writer, sheet_name='เรียงเดือนน้อย-มาก', index=False)
-            report_desc.to_excel(writer, sheet_name='เรียงเดือนมาก-น้อย', index=False)
-        print(f"สร้างรายงานเรียบร้อยแล้ว: {excel_output_file}")
-    except Exception as e:
-        print(f"❌ ไม่สามารถบันทึกไฟล์ Excel ได้ (อาจจะเปิดค้างอยู่): {e}")
-        # สิ้นสุดการทำงานถ้าบันทึกไม่ได้
-        exit()
-    
-    # Format Excel
-    def format_excel(filename, anomaly_map=None):
-        """จัดรูปแบบ Excel ให้สวยงาม"""
-        print("กำลังจัดรูปแบบ Excel...")
-        try:
-            wb = load_workbook(filename)
-        except Exception as e:
-            print(f"  ❌ ไม่สามารถเปิดไฟล์ Excel เพื่อจัดรูปแบบได้: {e}")
-            return
-            
-        for sheet_name in wb.sheetnames:
-            # ข้าม anomaly sheets (ถ้ามี)
-            if sheet_name.startswith('Anomaly') or sheet_name == 'Anomaly Summary':
-                continue
-                
-            ws = wb[sheet_name]
-            
-            # จัดรูปแบบ header
-            header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
-            header_font = Font(bold=True, color='FFFFFF', size=11)
-            
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-            
-            
-            # ✅ FIX: หาคอลัมน์ตัวเลขอย่างถูกต้อง
-            text_columns = {'กลุ่มธุรกิจ', 'กลุ่มบริการ', 'รหัสบริการ', 'ชื่อบริการ', 'ANOMALY_STATUS'}
-            
-            # จัดรูปแบบตัวเลขทุกคอลัมน์ที่ไม่ใช่ text
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row), 2):
-                for col_idx, cell in enumerate(row, 1):
-                    # เช็คว่าเป็นคอลัมน์ตัวเลขไหม
-                    header_value = ws.cell(row=1, column=col_idx).value
-                    
-                    if header_value not in text_columns:
-                        if cell.value and isinstance(cell.value, (int, float)):
-                            cell.number_format = '#,##0.00'
-                            cell.alignment = Alignment(horizontal='right')
-            
-            # --- [ START MODIFICATION ] ---
-            # กำหนดสีสำหรับแต่ละระดับ
-            service_group_fill = PatternFill(start_color='E8F1F8', end_color='E8F1F8', fill_type='solid') # ฟ้าอ่อน
-            service_group_font = Font(bold=True, size=10)
-            
-            business_group_fill = PatternFill(start_color='D0E2F0', end_color='D0E2F0', fill_type='solid') # ฟ้ากลาง
-            business_group_font = Font(bold=True, size=11)
-            
-            grand_total_fill = PatternFill(start_color='B8CCE4', end_color='B8CCE4', fill_type='solid') # ฟ้าเข้ม
-            grand_total_font = Font(bold=True, size=12)
-            
-            total_service_fill = PatternFill(start_color='C6E0B4', end_color='C6E0B4', fill_type='solid') # เขียวอ่อน
-            total_service_font = Font(bold=True, size=11, color='006100')
+        # ========================================================================
+        # Nested function: format_excel
+        # ========================================================================
+        def format_excel(filename, anomaly_map=None):
+            """จัดรูปแบบ Excel ให้สวยงาม"""
+            print("กำลังจัดรูปแบบ Excel...")
+            try:
+                wb = load_workbook(filename)
+            except Exception as e:
+                print(f"  ❌ ไม่สามารถเปิดไฟล์ Excel เพื่อจัดรูปแบบได้: {e}")
+                return
 
-            adj_group_fill = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid') # ส้มอ่อน
-            adj_group_font = Font(bold=True, size=11)
-            
-            adj_item_fill = PatternFill(start_color='FDF7F4', end_color='FDF7F4', fill_type='solid') # ส้มจาง
-            adj_item_font = Font(bold=False, size=10)
-            
-            adj_total_fill = PatternFill(start_color='F8CBAD', end_color='F8CBAD', fill_type='solid') # ส้มเข้ม
-            adj_total_font = Font(bold=True, size=11)
-            
-            # --- [ END MODIFICATION ] ---
+            for sheet_name in wb.sheetnames:
+                # ข้าม anomaly sheets
+                if sheet_name.startswith('Anomaly') or sheet_name == 'Anomaly Summary':
+                    continue
 
-            
-            # วนลูป highlight แถวตามประเภท
-            for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-                business_value = row[0].value
-                service_value = row[1].value
-                
-                # --- [ START MODIFICATION ] ---
-                if business_value and isinstance(business_value, str):
-                    if business_value.startswith('รวมทั้งสิ้น'):
-                        for cell in row:
-                            cell.fill = grand_total_fill
-                            cell.font = grand_total_font
-                    elif business_value.startswith('รวมรายได้จากการให้บริการ'):
-                        for cell in row:
-                            cell.fill = total_service_fill
-                            cell.font = total_service_font
-                    elif business_value == Config.NEW_ADJ_BUSINESS_GROUP:
-                        for cell in row:
-                            cell.fill = adj_group_fill
-                            cell.font = adj_group_font
-                    elif business_value.startswith('รวม '):
-                        for cell in row:
-                            cell.fill = business_group_fill
-                            cell.font = business_group_font
-                
-                elif service_value and isinstance(service_value, str):
-                    if service_value.startswith('รวม '):
-                        for cell in row:
-                            cell.fill = service_group_fill
-                            cell.font = service_group_font
-                    elif service_value == 'รวมผลตอบแทนทางการเงินและรายได้อื่น':
-                        for cell in row:
-                            cell.fill = adj_total_fill
-                            cell.font = adj_total_font
-                    elif service_value in (Config.FINANCIAL_INCOME_NAME, Config.OTHER_REVENUE_ADJ_NAME):
-                         for cell in row:
-                            cell.fill = adj_item_fill
-                            cell.font = adj_item_font
-                # --- [ END MODIFICATION ] ---
-            
-            # ปรับความกว้างของคอลัมน์
-            ws.column_dimensions['A'].width = 30
-            ws.column_dimensions['B'].width = 35
-            ws.column_dimensions['C'].width = 15
-            ws.column_dimensions['D'].width = 40
-            
-            # คอลัมน์ตัวเลขอื่นๆ
-            for col_idx in range(5, ws.max_column + 1):
-                ws.column_dimensions[get_column_letter(col_idx)].width = 15
-            
-            ws.freeze_panes = 'E2'
+                ws = wb[sheet_name]
 
+                # จัดรูปแบบ header
+                header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+                header_font = Font(bold=True, color='FFFFFF', size=11)
 
-            # [== ส่วนนี้เหมือนเดิม: FORMAT ANOMALY COLUMN ==]
-            anomaly_col_idx = None
-            for idx, cell in enumerate(ws[1], 1):
-                if cell.value == 'ANOMALY_STATUS':
-                    anomaly_col_idx = idx
-                    break
-            
-            if anomaly_col_idx:
-                try:
-                    anomaly_col_letter = get_column_letter(anomaly_col_idx)
-
-                    ws.column_dimensions[anomaly_col_letter].width = 20
-
-                    header_cell = ws.cell(row=1, column=anomaly_col_idx)
-                    header_cell.alignment = Alignment(horizontal='center', vertical='center')
-
-                    spike_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid') # Red
-                    dip_fill = PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid') # Yellow
-                    neg_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid') # Bright Red
-
-                    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=anomaly_col_idx, max_col=anomaly_col_idx):
-                        cell = row[0]
-                        cell.alignment = Alignment(horizontal='center')
-                        
-                        if cell.value == 'High_Spike':
-                            cell.fill = spike_fill
-                        elif cell.value == 'Low_Spike':
-                            cell.fill = dip_fill
-                        elif cell.value == 'Negative_Value':
-                            cell.fill = neg_fill
-                        elif cell.value == 'Spike_vs_Constant':
-                            cell.fill = spike_fill
-                        elif cell.value == 'New_Item':
-                            cell.fill = PatternFill(start_color='C6E0B4', end_color='C6E0B4', fill_type='solid') # Green
-                            
-                except Exception as e:
-                    print(f"Warning: ไม่สามารถจัดรูปแบบคอลัมน์ Anomaly ได้: {e}")
-
-            # --- [เพิ่มส่วน Highlight Cell Anomaly] ---
-            if anomaly_map:
-                print(f"  Applying anomaly highlights to {sheet_name}...")
-                
-                # Map column index to date string (Header row)
-                col_date_map = {}
                 for cell in ws[1]:
-                    if cell.value and '/' in str(cell.value): 
-                        col_date_map[cell.column] = str(cell.value)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-                # Loop rows
+                # จัดรูปแบบตัวเลข
+                text_columns = {'กลุ่มธุรกิจ', 'กลุ่มบริการ', 'รหัสบริการ', 'ชื่อบริการ', 'ANOMALY_STATUS'}
+
+                for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row), 2):
+                    for col_idx, cell in enumerate(row, 1):
+                        header_value = ws.cell(row=1, column=col_idx).value
+
+                        if header_value not in text_columns:
+                            if cell.value and isinstance(cell.value, (int, float)):
+                                cell.number_format = '#,##0.00'
+                                cell.alignment = Alignment(horizontal='right')
+
+                # กำหนดสีสำหรับแต่ละระดับ
+                service_group_fill = PatternFill(start_color='E8F1F8', end_color='E8F1F8', fill_type='solid')
+                service_group_font = Font(bold=True, size=10)
+
+                business_group_fill = PatternFill(start_color='D0E2F0', end_color='D0E2F0', fill_type='solid')
+                business_group_font = Font(bold=True, size=11)
+
+                grand_total_fill = PatternFill(start_color='B8CCE4', end_color='B8CCE4', fill_type='solid')
+                grand_total_font = Font(bold=True, size=12)
+
+                total_service_fill = PatternFill(start_color='C6E0B4', end_color='C6E0B4', fill_type='solid')
+                total_service_font = Font(bold=True, size=11, color='006100')
+
+                adj_group_fill = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid')
+                adj_group_font = Font(bold=True, size=11)
+
+                adj_item_fill = PatternFill(start_color='FDF7F4', end_color='FDF7F4', fill_type='solid')
+                adj_item_font = Font(bold=False, size=10)
+
+                adj_total_fill = PatternFill(start_color='F8CBAD', end_color='F8CBAD', fill_type='solid')
+                adj_total_font = Font(bold=True, size=11)
+
+                # วนลูป highlight แถวตามประเภท
                 for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-                    b_group = row[0].value
-                    s_group = row[1].value
-                    p_key = row[2].value
-                    
-                    row_type = None
-                    lookup_key = None
-                    
-                    # [FIX] ปรับ Logic ให้ Focus เฉพาะ Product Level 
-                    # และตัดการระบายสีระดับ Total ออก (เพื่อความสบายตา)
-                    
-                    if p_key: # ถ้ามี Product Key แสดงว่าเป็นแถว Product
-                         row_type = 'product'
-                         # Key ต้องเป็น Tuple (Biz, Svc, Key) ตรงกับที่แก้ใน detect_anomalies
-                         lookup_key = (b_group, s_group, p_key)
-                    
-                    # ถ้าต้องการระบายสีระดับ Service หรือ Business ด้วย ให้เปิด comment ด้านล่าง
-                    # elif s_group and str(s_group).startswith('รวม '):
-                    #      # Logic สำหรับหา Business Group ของแถวรวม Service ค่อนข้างซับซ้อนใน Excel 
-                    #      # เพราะ cell ด้านหน้าอาจว่าง ขอข้ามเพื่อความแม่นยำ
-                    #      pass 
-                    
-                    if row_type == 'product' and lookup_key:
-                        for col_idx, date_str in col_date_map.items():
-                            map_key = (row_type, lookup_key, date_str)
-                            
-                            if map_key in anomaly_map:
-                                status = anomaly_map[map_key]
-                                cell_to_color = ws.cell(row=row[0].row, column=col_idx)
-                                
-                                if status == 'High_Spike':
-                                    cell_to_color.fill = spike_fill
-                                elif status == 'Low_Spike':
-                                    cell_to_color.fill = dip_fill
-                                elif status == 'Negative_Value':
-                                    cell_to_color.fill = neg_fill
-                                    cell_to_color.font = Font(color='FFFFFF')
+                    business_value = row[0].value
+                    service_value = row[1].value
+
+                    if business_value and isinstance(business_value, str):
+                        if business_value.startswith('รวมทั้งสิ้น'):
+                            for cell in row:
+                                cell.fill = grand_total_fill
+                                cell.font = grand_total_font
+                        elif business_value.startswith('รวมรายได้จากการให้บริการ'):
+                            for cell in row:
+                                cell.fill = total_service_fill
+                                cell.font = total_service_font
+                        elif business_value == Config.NEW_ADJ_BUSINESS_GROUP:
+                            for cell in row:
+                                cell.fill = adj_group_fill
+                                cell.font = adj_group_font
+                        elif business_value.startswith('รวม '):
+                            for cell in row:
+                                cell.fill = business_group_fill
+                                cell.font = business_group_font
+
+                    elif service_value and isinstance(service_value, str):
+                        if service_value.startswith('รวม '):
+                            for cell in row:
+                                cell.fill = service_group_fill
+                                cell.font = service_group_font
+                        elif service_value == 'รวมผลตอบแทนทางการเงินและรายได้อื่น':
+                            for cell in row:
+                                cell.fill = adj_total_fill
+                                cell.font = adj_total_font
+                        elif service_value in (Config.FINANCIAL_INCOME_NAME, Config.OTHER_REVENUE_ADJ_NAME):
+                             for cell in row:
+                                cell.fill = adj_item_fill
+                                cell.font = adj_item_font
+
+                # ปรับความกว้างของคอลัมน์
+                ws.column_dimensions['A'].width = 30
+                ws.column_dimensions['B'].width = 35
+                ws.column_dimensions['C'].width = 15
+                ws.column_dimensions['D'].width = 40
+
+                for col_idx in range(5, ws.max_column + 1):
+                    ws.column_dimensions[get_column_letter(col_idx)].width = 15
+
+                ws.freeze_panes = 'E2'
+
+                # Format ANOMALY_STATUS column
+                anomaly_col_idx = None
+                for idx, cell in enumerate(ws[1], 1):
+                    if cell.value == 'ANOMALY_STATUS':
+                        anomaly_col_idx = idx
+                        break
+
+                if anomaly_col_idx:
+                    try:
+                        anomaly_col_letter = get_column_letter(anomaly_col_idx)
+                        ws.column_dimensions[anomaly_col_letter].width = 20
+
+                        header_cell = ws.cell(row=1, column=anomaly_col_idx)
+                        header_cell.alignment = Alignment(horizontal='center', vertical='center')
+
+                        spike_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+                        dip_fill = PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid')
+                        neg_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
+
+                        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=anomaly_col_idx, max_col=anomaly_col_idx):
+                            cell = row[0]
+                            cell.alignment = Alignment(horizontal='center')
+
+                            if cell.value == 'High_Spike':
+                                cell.fill = spike_fill
+                            elif cell.value == 'Low_Spike':
+                                cell.fill = dip_fill
+                            elif cell.value == 'Negative_Value':
+                                cell.fill = neg_fill
+                            elif cell.value == 'Spike_vs_Constant':
+                                cell.fill = spike_fill
+                            elif cell.value == 'New_Item':
+                                cell.fill = PatternFill(start_color='C6E0B4', end_color='C6E0B4', fill_type='solid')
+
+                    except Exception as e:
+                        print(f"Warning: ไม่สามารถจัดรูปแบบคอลัมน์ Anomaly ได้: {e}")
+
+                # Highlight Cell Anomaly
+                if anomaly_map:
+                    print(f"  Applying anomaly highlights to {sheet_name}...")
+
+                    col_date_map = {}
+                    for cell in ws[1]:
+                        if cell.value and '/' in str(cell.value):
+                            col_date_map[cell.column] = str(cell.value)
+
+                    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+                        b_group = row[0].value
+                        s_group = row[1].value
+                        p_key = row[2].value
+
+                        row_type = None
+                        lookup_key = None
+
+                        if p_key:
+                             row_type = 'product'
+                             lookup_key = (b_group, s_group, p_key)
+
+                        if row_type == 'product' and lookup_key:
+                            for col_idx, date_str in col_date_map.items():
+                                map_key = (row_type, lookup_key, date_str)
+
+                                if map_key in anomaly_map:
+                                    status = anomaly_map[map_key]
+                                    cell_to_color = ws.cell(row=row[0].row, column=col_idx)
+
+                                    if status == 'High_Spike':
+                                        cell_to_color.fill = spike_fill
+                                    elif status == 'Low_Spike':
+                                        cell_to_color.fill = dip_fill
+                                    elif status == 'Negative_Value':
+                                        cell_to_color.fill = neg_fill
+                                        cell_to_color.font = Font(color='FFFFFF')
+
+            try:
+                wb.save(filename)
+                print(f"จัดรูปแบบ Excel เรียบร้อยแล้ว")
+            except Exception as e:
+                print(f"❌ ไม่สามารถบันทึกไฟล์ Excel ที่จัดรูปแบบแล้วได้ (อาจจะเปิดค้างอยู่): {e}")
+
+        # ========================================================================
+        # สร้างรายงาน 2 แบบ
+        # ========================================================================
+        print("กำลังสร้างรายงาน...")
+        report_asc = create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=True)
+        report_desc = create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=False)
+
+        # บันทึกเป็น Excel
+        try:
+            with pd.ExcelWriter(excel_output_file, engine='openpyxl') as writer:
+                report_asc.to_excel(writer, sheet_name='เรียงเดือนน้อย-มาก', index=False)
+                report_desc.to_excel(writer, sheet_name='เรียงเดือนมาก-น้อย', index=False)
+            print(f"สร้างรายงานเรียบร้อยแล้ว: {excel_output_file}")
+        except Exception as e:
+            print(f"❌ ไม่สามารถบันทึกไฟล์ Excel ได้ (อาจจะเปิดค้างอยู่): {e}")
+            raise
+
+        # Format Excel
+        format_excel(excel_output_file, anomaly_map=historical_anomalies)
+
+        # เพิ่ม Anomaly Detection Sheets
+        print("\n" + "=" * 80)
+        print("เพิ่ม Anomaly Detection Report...")
+        print("=" * 80)
 
         try:
-            wb.save(filename)
-            print(f"จัดรูปแบบ Excel เรียบร้อยแล้ว")
+            self.create_anomaly_report_sheets(anomaly_results, excel_output_file)
         except Exception as e:
-            print(f"❌ ไม่สามารถบันทึกไฟล์ Excel ที่จัดรูปแบบแล้วได้ (อาจจะเปิดค้างอยู่): {e}")
+            print(f"❌ เกิดข้อผิดพลาดในการเพิ่ม Anomaly Sheets: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
-    
-    format_excel(excel_output_file, anomaly_map=historical_anomalies)
-    
-    # ============================================================================
-    # เพิ่ม Anomaly Detection Sheets (ใช้ไฟล์เดียวกัน)
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("เพิ่ม Anomaly Detection Report...")
-    print("=" * 80)
-    
-    try:
-        etl.create_anomaly_report_sheets(anomaly_results, excel_output_file)
-    except Exception as e:
-        print(f"❌ เกิดข้อผิดพลาดในการเพิ่ม Anomaly Sheets: {str(e)}")
-        import traceback
-        traceback.print_exc()
-    
-    # ============================================================================
-    # สรุปผลลัพธ์
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("สรุปข้อมูล:")
-    print("=" * 80)
-    print(f"จำนวนแถวทั้งหมด (NT1 + ADJ): {len(df_result):,}")
-    print(f"ยอดรวมทั้งหมด (NT1 + ADJ): {df_result['REVENUE_VALUE'].sum():,.2f}")
-    print(f"จำนวนเดือน: {df_result['MONTH'].nunique()}")
-    print(f"จำนวน Product (รวม ADJ): {df_result['PRODUCT_KEY'].nunique()}")
-    
-    print("\n" + "=" * 80)
-    print("Anomaly Detection Summary:")
-    print("=" * 80)
-    if not anomaly_results:
-        print("  ไม่มีผลลัพธ์การตรวจสอบ Anomaly (อาจมีข้อมูลไม่พอ)")
-    else:
-        for level_name, df_anomaly in anomaly_results.items():
-            status_counts = df_anomaly['ANOMALY_STATUS'].value_counts()
-            total = len(df_anomaly)
-            normal = status_counts.get('Normal', 0) + status_counts.get('Not_Enough_Data', 0)
-            anomalies = total - normal
-            print(f"{level_name.upper():15s}: {anomalies:4d} / {total:4d} anomalies detected")
-    
-    print("\n✓ เสร็จสมบูรณ์!")
-    print(f"Excel Report: {excel_output_file}")
-    print(f"  - Sheet 1: เรียงเดือนน้อย-มาก")
-    print(f"  - Sheet 2: เรียงเดือนมาก-น้อย")
-    print(f"  - Sheet 3: Anomaly Summary")
-    print(f"  - Sheet 4-7: Anomaly Details (Product, Service, Business, Grand Total)")
+        # สรุปผลลัพธ์
+        print("\n" + "=" * 80)
+        print("สรุปข้อมูล:")
+        print("=" * 80)
+        print(f"จำนวนแถวทั้งหมด (NT1 + ADJ): {len(df_result):,}")
+        print(f"ยอดรวมทั้งหมด (NT1 + ADJ): {df_result['REVENUE_VALUE'].sum():,.2f}")
+        print(f"จำนวนเดือน: {df_result['MONTH'].nunique()}")
+        print(f"จำนวน Product (รวม ADJ): {df_result['PRODUCT_KEY'].nunique()}")
+
+        print("\n" + "=" * 80)
+        print("Anomaly Detection Summary:")
+        print("=" * 80)
+        if not anomaly_results:
+            print("  ไม่มีผลลัพธ์การตรวจสอบ Anomaly (อาจมีข้อมูลไม่พอ)")
+        else:
+            for level_name, df_anomaly in anomaly_results.items():
+                status_counts = df_anomaly['ANOMALY_STATUS'].value_counts()
+                total = len(df_anomaly)
+                normal = status_counts.get('Normal', 0) + status_counts.get('Not_Enough_Data', 0)
+                anomalies = total - normal
+                print(f"{level_name.upper():15s}: {anomalies:4d} / {total:4d} anomalies detected")
+
+        print("\n✓ เสร็จสมบูรณ์!")
+        print(f"Excel Report: {excel_output_file}")
+        print(f"  - Sheet 1: เรียงเดือนน้อย-มาก")
+        print(f"  - Sheet 2: เรียงเดือนมาก-น้อย")
+
+        return excel_output_file
+
+
+# ============================================================================
+# Main Execution
+# ============================================================================
+if __name__ == "__main__":
+    from datetime import datetime
+
+    print("="*80)
+    print("Revenue ETL System - Standalone Execution")
+    print("="*80)
+
+    # สร้าง ETL instance และรัน Pipeline
+    etl = RevenueETL()
+    df_result, anomaly_results = etl.run()
+
+    # สร้าง Excel Report
+    excel_file = etl.create_excel_report(df_result, anomaly_results)

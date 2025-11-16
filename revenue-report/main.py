@@ -18,7 +18,6 @@ from pathlib import Path
 # Import modules
 from config_manager import ConfigManager, get_config_manager
 from fi_revenue_expense_module import FIRevenueExpenseProcessor
-from revenue_reconciliation import RevenueReconciliation, ReconciliationError
 
 # Import revenue_etl_report (original module with Config class)
 # เราจะ import และแก้ไข Config ให้ใช้จาก ConfigManager แทน
@@ -102,7 +101,7 @@ class RevenueETLSystem:
     def run_etl_module(self) -> bool:
         """
         รัน Revenue ETL Module
-        
+
         Returns:
             bool: True ถ้าสำเร็จ, False ถ้าล้มเหลว
         """
@@ -110,14 +109,14 @@ class RevenueETLSystem:
             self.log("\n" + "=" * 100)
             self.log("STEP 2: Revenue ETL Pipeline Processing")
             self.log("=" * 100)
-            
+
             # ตรวจสอบว่า FI module ทำงานเสร็จแล้ว
             if not self.fi_completed:
                 self.log("⚠️ FI Module ยังไม่ได้ประมวลผล กำลังรัน FI Module ก่อน...", "WARNING")
                 if not self.run_fi_module():
                     self.log("❌ ไม่สามารถรัน ETL Module เนื่องจาก FI Module ล้มเหลว", "ERROR")
                     return False
-            
+
             # ดึง config สำหรับ ETL module
             etl_config = self.config_manager.get_etl_config()
 
@@ -126,97 +125,38 @@ class RevenueETLSystem:
                 config=etl_config,
                 paths=etl_config['paths']
             )
-            
-            # รัน ETL pipeline steps ตามลำดับ
-            self.log("Step 1: รวมไฟล์ CSV...")
-            df_concat = self.etl_processor.step1_concat_files()
-            
-            if df_concat is None:
-                self.log("❌ ไม่พบไฟล์ต้นทางสำหรับ ETL", "ERROR")
-                return False
-            
-            self.log("Step 2: Mapping Cost Center...")
-            df_mapped_cc = self.etl_processor.step2_map_cost_center(df_concat)
-            
-            self.log("Step 3: Mapping Product...")
-            df_mapped_product = self.etl_processor.step3_map_product(df_mapped_cc)
-            
-            self.log("Step 4: Merge กับ Master และสร้างรายงาน...")
-            df_result = self.etl_processor.step4_merge_and_report(df_mapped_product)
-            
+
+            # รัน ETL Pipeline (รวม reconciliation, mapping, และ anomaly detection)
+            self.log("กำลังรัน ETL Pipeline...")
+            df_result, anomaly_results = self.etl_processor.run()
+
             if df_result is not None:
                 self.etl_completed = True
-                self.log("✓ ETL Module ประมวลผลสำเร็จ", "SUCCESS")
-                
-                # ตรวจสอบการ Reconcile ถ้าเปิดใช้งาน
-                if etl_config['reconciliation']['enabled']:
-                    self.log("\n" + "=" * 100)
-                    self.log("STEP 3: Revenue Reconciliation")
-                    self.log("=" * 100)
-                    
-                    reconcile_success = self._run_reconciliation(etl_config)
-                    
-                    if not reconcile_success:
-                        self.log("⚠️ Reconciliation พบความแตกต่าง แต่ยังคงดำเนินการต่อ", "WARNING")
-                
+                self.etl_output = {
+                    'df_result': df_result,
+                    'anomaly_results': anomaly_results
+                }
+
+                self.log("✓ ETL Pipeline ประมวลผลสำเร็จ", "SUCCESS")
+
+                # สร้าง Excel Report
+                self.log("\n" + "=" * 100)
+                self.log("STEP 3: Creating Excel Report")
+                self.log("=" * 100)
+
+                excel_file = self.etl_processor.create_excel_report(df_result, anomaly_results)
+                self.log(f"✓ Excel Report สร้างเสร็จสมบูรณ์: {excel_file}", "SUCCESS")
+
                 return True
             else:
                 self.log("❌ ETL Module ประมวลผลล้มเหลว", "ERROR")
                 return False
-                
+
         except Exception as e:
             self.log(f"❌ เกิดข้อผิดพลาดในการรัน ETL Module: {e}", "ERROR")
             traceback.print_exc()
             return False
-    
-    def _run_reconciliation(self, etl_config: dict) -> bool:
-        """
-        รัน Revenue Reconciliation
-        
-        Args:
-            etl_config: configuration สำหรับ ETL
-            
-        Returns:
-            bool: True ถ้า reconcile ผ่าน, False ถ้าไม่ผ่าน
-        """
-        try:
-            # สร้าง paths สำหรับไฟล์ที่ต้องใช้
-            fi_file_path = self.fi_output['csv_revenue']
-            trn_file_path = os.path.join(
-                etl_config['paths']['output'],
-                etl_config['output_files']['concat']
-            )
-            
-            # สร้าง Reconciliation instance (V2 - ส่ง config dict)
-            reconciler = RevenueReconciliation(
-                etl_config,
-                etl_config['paths']
-            )
-            
-            # รัน reconciliation
-            reconciler.reconcile_revenue(
-                fi_file_path=fi_file_path,
-                trn_file_path=trn_file_path,
-                tolerance=etl_config['reconciliation']['tolerance']
-            )
-            
-            # ตรวจสอบผลลัพธ์
-            results = reconciler.reconcile_results
-            if results['monthly']['passed'] and results['ytd']['passed']:
-                self.log("✓ Reconciliation ผ่านทั้งหมด", "SUCCESS")
-                return True
-            else:
-                self.log("❌ Reconciliation พบความแตกต่าง", "ERROR")
-                return False
-                
-        except ReconciliationError as e:
-            self.log(f"❌ Reconciliation Error: {e}", "ERROR")
-            return False
-        except Exception as e:
-            self.log(f"❌ เกิดข้อผิดพลาดใน Reconciliation: {e}", "ERROR")
-            traceback.print_exc()
-            return False
-    
+
     def run_all(self) -> bool:
         """
         รันระบบทั้งหมดตามลำดับ
