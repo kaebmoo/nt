@@ -1,0 +1,386 @@
+"""
+Revenue ETL System - Main Program
+==================================
+โปรแกรมหลักสำหรับประมวลผลข้อมูล Revenue ETL
+รองรับการเรียกใช้งานแบบ Command Line และ Web Application
+
+Author: Revenue ETL System
+Version: 2.0.0
+"""
+
+import sys
+import os
+import argparse
+from datetime import datetime
+import traceback
+from pathlib import Path
+
+# Import modules
+from config_manager import ConfigManager, get_config_manager
+from fi_revenue_expense_module import FIRevenueExpenseProcessor
+from revenue_reconciliation import RevenueReconciliation, ReconciliationError
+
+# Import revenue_etl_report (original module with Config class)
+# เราจะ import และแก้ไข Config ให้ใช้จาก ConfigManager แทน
+import revenue_etl_report
+
+
+class RevenueETLSystem:
+    """
+    ระบบ Revenue ETL หลัก
+    จัดการการประมวลผลตามลำดับและ dependencies
+    """
+    
+    def __init__(self, config_path: str = "config.json"):
+        """
+        Initialize Revenue ETL System
+        
+        Args:
+            config_path: path ของไฟล์ configuration
+        """
+        self.config_manager = get_config_manager(config_path)
+        self.fi_processor = None
+        self.etl_processor = None
+        
+        # สถานะการประมวลผล
+        self.fi_completed = False
+        self.etl_completed = False
+        
+        # ผลลัพธ์
+        self.fi_output = None
+        self.etl_output = None
+        
+    def log(self, message: str, level: str = "INFO") -> None:
+        """
+        แสดงข้อความ log
+        
+        Args:
+            message: ข้อความที่ต้องการแสดง
+            level: ระดับของ log
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{timestamp}] [{level}] {message}")
+    
+    def run_fi_module(self) -> bool:
+        """
+        รัน FI Revenue Expense Module
+        
+        Returns:
+            bool: True ถ้าสำเร็จ, False ถ้าล้มเหลว
+        """
+        try:
+            self.log("=" * 100)
+            self.log("STEP 1: FI Revenue Expense Processing")
+            self.log("=" * 100)
+            
+            # ดึง config สำหรับ FI module
+            fi_config = self.config_manager.get_fi_config()
+            
+            # สร้าง processor
+            self.fi_processor = FIRevenueExpenseProcessor(fi_config)
+            
+            # รันการประมวลผล
+            if self.fi_processor.run():
+                self.fi_completed = True
+                self.fi_output = self.fi_processor.get_output_files()
+                
+                self.log("✓ FI Module ประมวลผลสำเร็จ", "SUCCESS")
+                self.log(f"  Output Files:")
+                for key, path in self.fi_output.items():
+                    self.log(f"    - {key}: {path}")
+                
+                return True
+            else:
+                self.log("❌ FI Module ประมวลผลล้มเหลว", "ERROR")
+                return False
+                
+        except Exception as e:
+            self.log(f"❌ เกิดข้อผิดพลาดในการรัน FI Module: {e}", "ERROR")
+            traceback.print_exc()
+            return False
+    
+    def run_etl_module(self) -> bool:
+        """
+        รัน Revenue ETL Module
+        
+        Returns:
+            bool: True ถ้าสำเร็จ, False ถ้าล้มเหลว
+        """
+        try:
+            self.log("\n" + "=" * 100)
+            self.log("STEP 2: Revenue ETL Pipeline Processing")
+            self.log("=" * 100)
+            
+            # ตรวจสอบว่า FI module ทำงานเสร็จแล้ว
+            if not self.fi_completed:
+                self.log("⚠️ FI Module ยังไม่ได้ประมวลผล กำลังรัน FI Module ก่อน...", "WARNING")
+                if not self.run_fi_module():
+                    self.log("❌ ไม่สามารถรัน ETL Module เนื่องจาก FI Module ล้มเหลว", "ERROR")
+                    return False
+            
+            # ดึง config สำหรับ ETL module
+            etl_config = self.config_manager.get_etl_config()
+            
+            # แก้ไข Config class ใน revenue_etl_report ให้ใช้ค่าจาก ConfigManager
+            self._update_etl_config(etl_config)
+            
+            # สร้าง ETL instance
+            self.etl_processor = revenue_etl_report.RevenueETL()
+            
+            # รัน ETL pipeline steps ตามลำดับ
+            self.log("Step 1: รวมไฟล์ CSV...")
+            df_concat = self.etl_processor.step1_concat_files()
+            
+            if df_concat is None:
+                self.log("❌ ไม่พบไฟล์ต้นทางสำหรับ ETL", "ERROR")
+                return False
+            
+            self.log("Step 2: Mapping Cost Center...")
+            df_mapped_cc = self.etl_processor.step2_map_cost_center(df_concat)
+            
+            self.log("Step 3: Mapping Product...")
+            df_mapped_product = self.etl_processor.step3_map_product(df_mapped_cc)
+            
+            self.log("Step 4: Merge กับ Master และสร้างรายงาน...")
+            df_result = self.etl_processor.step4_merge_and_report(df_mapped_product)
+            
+            if df_result is not None:
+                self.etl_completed = True
+                self.log("✓ ETL Module ประมวลผลสำเร็จ", "SUCCESS")
+                
+                # ตรวจสอบการ Reconcile ถ้าเปิดใช้งาน
+                if etl_config['reconciliation']['enabled']:
+                    self.log("\n" + "=" * 100)
+                    self.log("STEP 3: Revenue Reconciliation")
+                    self.log("=" * 100)
+                    
+                    reconcile_success = self._run_reconciliation(etl_config)
+                    
+                    if not reconcile_success:
+                        self.log("⚠️ Reconciliation พบความแตกต่าง แต่ยังคงดำเนินการต่อ", "WARNING")
+                
+                return True
+            else:
+                self.log("❌ ETL Module ประมวลผลล้มเหลว", "ERROR")
+                return False
+                
+        except Exception as e:
+            self.log(f"❌ เกิดข้อผิดพลาดในการรัน ETL Module: {e}", "ERROR")
+            traceback.print_exc()
+            return False
+    
+    def _update_etl_config(self, etl_config: dict) -> None:
+        """
+        อัพเดท Config class ใน revenue_etl_report module
+        
+        Args:
+            etl_config: configuration จาก ConfigManager
+        """
+        # อัพเดท paths
+        revenue_etl_report.Config.YEAR = etl_config['year']
+        
+        # อัพเดท master files
+        revenue_etl_report.Config.MASTER_PRODUCT_FILE = f"MASTER_PRODUCT_NT_{etl_config['year']}.csv"
+        revenue_etl_report.Config.MASTER_GL_FILE = etl_config['master_files']['gl_code']
+        revenue_etl_report.Config.MAPPING_CC_FILE = etl_config['master_files']['mapping_cc']
+        revenue_etl_report.Config.MAPPING_PRODUCT_FILE = etl_config['master_files']['mapping_product']
+        
+        # อัพเดท reconciliation settings
+        revenue_etl_report.Config.RECONCILE_FI_MONTH = etl_config['reconciliation']['fi_month']
+        revenue_etl_report.Config.RECONCILE_TOLERANCE = etl_config['reconciliation']['tolerance']
+        revenue_etl_report.Config.ENABLE_RECONCILIATION = etl_config['reconciliation']['enabled']
+        
+        # อัพเดท business rules
+        revenue_etl_report.Config.EXCLUDE_BUSINESS_GROUP = etl_config['business_rules']['exclude_business_group']
+        revenue_etl_report.Config.NON_TELECOM_SERVICE_GROUP = etl_config['business_rules']['non_telecom_service_group']
+        revenue_etl_report.Config.NEW_ADJ_BUSINESS_GROUP = etl_config['business_rules']['new_adj_business_group']
+        revenue_etl_report.Config.FINANCIAL_INCOME_NAME = etl_config['business_rules']['financial_income_name']
+        revenue_etl_report.Config.OTHER_REVENUE_ADJ_NAME = etl_config['business_rules']['other_revenue_adj_name']
+        
+        # อัพเดท output files
+        revenue_etl_report.Config.OUTPUT_CONCAT_FILE = etl_config['output_files']['concat']
+        revenue_etl_report.Config.OUTPUT_MAPPED_CC_FILE = etl_config['output_files']['mapped_cc']
+        revenue_etl_report.Config.OUTPUT_MAPPED_PRODUCT_FILE = etl_config['output_files']['mapped_product']
+        revenue_etl_report.Config.OUTPUT_FINAL_REPORT_FILE = etl_config['output_files']['final_report']
+        revenue_etl_report.Config.ERROR_GL_FILE = etl_config['output_files']['error_gl']
+        revenue_etl_report.Config.ERROR_PRODUCT_FILE = etl_config['output_files']['error_product']
+        
+        # อัพเดท anomaly detection settings
+        revenue_etl_report.Config.ANOMALY_IQR_MULTIPLIER = etl_config['anomaly_detection']['iqr_multiplier']
+        revenue_etl_report.Config.ANOMALY_MIN_HISTORY = etl_config['anomaly_detection']['min_history']
+        revenue_etl_report.Config.ANOMALY_ROLLING_WINDOW = etl_config['anomaly_detection']['rolling_window']
+        revenue_etl_report.Config.ENABLE_HISTORICAL_HIGHLIGHT = etl_config['anomaly_detection']['enable_historical_highlight']
+        
+        self.log("✓ อัพเดท ETL Configuration เรียบร้อย")
+    
+    def _run_reconciliation(self, etl_config: dict) -> bool:
+        """
+        รัน Revenue Reconciliation
+        
+        Args:
+            etl_config: configuration สำหรับ ETL
+            
+        Returns:
+            bool: True ถ้า reconcile ผ่าน, False ถ้าไม่ผ่าน
+        """
+        try:
+            # สร้าง paths สำหรับไฟล์ที่ต้องใช้
+            fi_file_path = self.fi_output['csv_revenue']
+            trn_file_path = os.path.join(
+                etl_config['paths']['output'],
+                etl_config['output_files']['concat']
+            )
+            
+            # สร้าง Reconciliation instance
+            reconciler = RevenueReconciliation(
+                revenue_etl_report.Config,
+                etl_config['paths']
+            )
+            
+            # รัน reconciliation
+            reconciler.reconcile_revenue(
+                fi_file_path=fi_file_path,
+                trn_file_path=trn_file_path,
+                tolerance=etl_config['reconciliation']['tolerance']
+            )
+            
+            # ตรวจสอบผลลัพธ์
+            results = reconciler.reconcile_results
+            if results['monthly']['passed'] and results['ytd']['passed']:
+                self.log("✓ Reconciliation ผ่านทั้งหมด", "SUCCESS")
+                return True
+            else:
+                self.log("❌ Reconciliation พบความแตกต่าง", "ERROR")
+                return False
+                
+        except ReconciliationError as e:
+            self.log(f"❌ Reconciliation Error: {e}", "ERROR")
+            return False
+        except Exception as e:
+            self.log(f"❌ เกิดข้อผิดพลาดใน Reconciliation: {e}", "ERROR")
+            traceback.print_exc()
+            return False
+    
+    def run_all(self) -> bool:
+        """
+        รันระบบทั้งหมดตามลำดับ
+        
+        Returns:
+            bool: True ถ้าสำเร็จทั้งหมด, False ถ้ามีข้อผิดพลาด
+        """
+        start_time = datetime.now()
+        
+        self.log("=" * 100)
+        self.log("REVENUE ETL SYSTEM - เริ่มประมวลผล")
+        self.log("=" * 100)
+        
+        # แสดง configuration summary
+        self.config_manager.print_config_summary()
+        
+        # สร้าง directories
+        self.log("\nสร้าง/ตรวจสอบ Directories...")
+        self.config_manager.create_directories()
+        
+        # รัน FI Module
+        if not self.run_fi_module():
+            self.log("❌ ระบบหยุดทำงานเนื่องจาก FI Module ล้มเหลว", "ERROR")
+            return False
+        
+        # รัน ETL Module
+        if not self.run_etl_module():
+            self.log("❌ ระบบหยุดทำงานเนื่องจาก ETL Module ล้มเหลว", "ERROR")
+            return False
+        
+        # สรุปผล
+        end_time = datetime.now()
+        duration = end_time - start_time
+        
+        self.log("\n" + "=" * 100)
+        self.log("สรุปผลการประมวลผล")
+        self.log("=" * 100)
+        self.log(f"สถานะ: {'สำเร็จ' if (self.fi_completed and self.etl_completed) else 'ล้มเหลว'}")
+        self.log(f"FI Module: {'✓ สำเร็จ' if self.fi_completed else '✗ ล้มเหลว'}")
+        self.log(f"ETL Module: {'✓ สำเร็จ' if self.etl_completed else '✗ ล้มเหลว'}")
+        self.log(f"เวลาที่ใช้: {duration}")
+        self.log("=" * 100)
+        
+        return self.fi_completed and self.etl_completed
+
+
+def main():
+    """
+    Main function สำหรับ command line interface
+    """
+    parser = argparse.ArgumentParser(
+        description='Revenue ETL System - ระบบประมวลผลข้อมูลรายได้'
+    )
+    
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='config.json',
+        help='Path ของไฟล์ configuration (default: config.json)'
+    )
+    
+    parser.add_argument(
+        '--module',
+        type=str,
+        choices=['all', 'fi', 'etl'],
+        default='all',
+        help='เลือก module ที่ต้องการรัน (default: all)'
+    )
+    
+    parser.add_argument(
+        '--update-config',
+        action='store_true',
+        help='เปิดโหมดแก้ไข configuration'
+    )
+    
+    parser.add_argument(
+        '--year',
+        type=str,
+        help='กำหนดปีที่ต้องการประมวลผล (override config)'
+    )
+    
+    args = parser.parse_args()
+    
+    try:
+        # สร้าง system instance
+        system = RevenueETLSystem(args.config)
+        
+        # อัพเดท config ถ้ามีการระบุ
+        if args.year:
+            system.config_manager.update_config('processing_year', '', args.year)
+            system.log(f"อัพเดทปีเป็น: {args.year}")
+        
+        # โหมดแก้ไข config
+        if args.update_config:
+            system.log("เปิดโหมดแก้ไข Configuration")
+            # TODO: implement interactive config editor
+            system.log("(ฟีเจอร์นี้ยังไม่พร้อมใช้งาน)")
+            return
+        
+        # รัน module ตามที่เลือก
+        success = False
+        
+        if args.module == 'all':
+            success = system.run_all()
+        elif args.module == 'fi':
+            success = system.run_fi_module()
+        elif args.module == 'etl':
+            success = system.run_etl_module()
+        
+        # Exit code
+        sys.exit(0 if success else 1)
+        
+    except FileNotFoundError as e:
+        print(f"❌ ไม่พบไฟล์: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ เกิดข้อผิดพลาด: {e}")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

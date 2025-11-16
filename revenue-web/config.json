@@ -1,7 +1,7 @@
 {
   "paths": {
-    "fi_input": "data/input/fi",
-    "fi_output": "data/processed/fi",
+    "fi_input": "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource/2025/revenue",
+    "fi_output": "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource/2025/revenue",
     "final_output": "reports"
   },
   "master_files": {
