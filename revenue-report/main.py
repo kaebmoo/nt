@@ -22,11 +22,8 @@ from pathlib import Path
 from config_manager import ConfigManager, get_config_manager
 from fi_revenue_expense_module import FIRevenueExpenseProcessor
 
-# (*** สำคัญ ***)
-# Import ทั้งโมดูล revenue_etl_report และฟังก์ชัน create_final_excel_report
-# (นี่คือส่วนที่จำเป็นสำหรับการเรียกใช้)
+# Import revenue_etl_report module เพื่อสร้าง RevenueETL instance
 import revenue_etl_report
-from revenue_etl_report import create_final_excel_report
 
 
 class RevenueETLSystem:
@@ -159,32 +156,26 @@ class RevenueETLSystem:
             self.etl_anomaly_results = anomaly_results
             self.log("✓ ETL Pipeline (CSV) ประมวลผลสำเร็จ", "SUCCESS")
 
-            # 3. (*** นี่คือส่วนที่ปรับปรุงตามที่คุณเห็นด้วย ***) 
-            # สร้าง Excel Report ต่อทันที
+            # 3. สร้าง Excel Report ต่อทันที
             # (นี่คือสิ่งที่ web_app.py คาดหวัง)
             self.log("\n" + "=" * 100)
             self.log("STEP 3: Creating Final Excel Report")
             self.log("=" * 100)
-            
-            # (เรียกฟังก์ชันที่ import มา)
-            create_final_excel_report(
-                self.etl_processor,
+
+            # เรียก method create_excel_report จาก etl_processor object
+            excel_path = self.etl_processor.create_excel_report(
                 self.etl_final_df,
                 self.etl_anomaly_results
             )
-            
-            self.log("✓ Final Excel Report สร้างสำเร็จ", "SUCCESS")
-            self.etl_completed = True # (ย้ายมา success ตรงนี้)
+
+            self.log(f"✓ Final Excel Report สร้างสำเร็จ: {excel_path}", "SUCCESS")
+            self.etl_completed = True
             return True
                 
         except Exception as e:
             self.log(f"❌ เกิดข้อผิดพลาดในการรัน ETL Module: {e}", "ERROR")
             traceback.print_exc()
             return False
-    
-    # (*** ลบ ***: ฟังก์ชัน run_final_excel_report() ถูกลบออก
-    # เพราะตรรกะถูกย้ายไปรวมใน run_etl_module() แล้ว)
-    # (นี่คือการ Refactor ที่ถูกต้อง ไม่ใช่การ "เอาออก")
 
     def run_all(self) -> bool:
         """
