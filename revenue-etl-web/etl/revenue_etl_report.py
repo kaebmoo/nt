@@ -890,8 +890,11 @@ class RevenueETL:
             df_calc = df_pivot.replace(0, np.nan)
             min_periods = self.config.ANOMALY_MIN_HISTORY
             
-            q1_matrix = df_calc.expanding(min_periods=min_periods, axis=1).quantile(0.25).shift(1, axis=1)
-            q3_matrix = df_calc.expanding(min_periods=min_periods, axis=1).quantile(0.75).shift(1, axis=1)
+            # q1_matrix = df_calc.expanding(min_periods=min_periods, axis=1).quantile(0.25).shift(1, axis=1)
+            # q3_matrix = df_calc.expanding(min_periods=min_periods, axis=1).quantile(0.75).shift(1, axis=1)
+            # สลับแกน (T) -> คำนวณ (ไม่มี axis=1) -> สลับกลับ (T)
+            q1_matrix = df_calc.T.expanding(min_periods=min_periods).quantile(0.25).shift(1).T
+            q3_matrix = df_calc.T.expanding(min_periods=min_periods).quantile(0.75).shift(1).T
             iqr_matrix = q3_matrix - q1_matrix
             
             k = self.config.ANOMALY_IQR_MULTIPLIER
