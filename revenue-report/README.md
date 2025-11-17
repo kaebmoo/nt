@@ -423,6 +423,33 @@ PermissionError: [Errno 13] Permission denied
 | `reconcile_monthly_errors_{YYYY}_{timestamp}.csv` | รายการที่แตกต่าง (Monthly) |
 | `reconcile_ytd_errors_{YYYY}_{timestamp}.csv` | รายการที่แตกต่าง (YTD) |
 
+### 📋 ตัวอย่างข้อมูล (Quick Reference)
+
+#### FI Output CSV
+```csv
+GL_CODE,REVENUE_VALUE,REVENUE_VALUE_YTD
+40100101,1234567.89,12345678.90
+46400101,123456.78,1234567.80
+```
+
+#### ETL Final Report CSV
+```csv
+YEAR,MONTH,ITEM,BUSINESS_GROUP,SERVICE_GROUP,PRODUCT_KEY,PRODUCT_NAME,AMOUNT
+2025,1,รายได้จากการให้บริการ,Mobile,Mobile Postpaid,102010101,3G/4G/5G Data Package,1234567.89
+2025,1,รายได้อื่น,Other Revenue,Interest Income,292010101,ดอกเบี้ยรับ,123456.78
+```
+
+#### Reconciliation Summary
+```
+[1] RECONCILE รายเดือน (MONTHLY)
+Status: PASSED
+FI Total: 3,324,811,103.24
+TRN Total: 3,324,811,103.24
+Diff: 0.00
+```
+
+> 💡 **สำหรับตัวอย่างข้อมูลละเอียดของทุกไฟล์ (Master, Input, Output, Logs) โปรดดูที่ [SETUP_GUIDE.md - File Format Examples](SETUP_GUIDE.md#-file-format-examples)**
+
 ---
 
 ## 🔄 Version History
