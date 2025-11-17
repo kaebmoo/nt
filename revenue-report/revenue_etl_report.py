@@ -1612,7 +1612,7 @@ class RevenueETL:
             self.logger.info(f"  กำลังสร้างรายงาน (sort_ascending={sort_ascending})...")
 
             # --- 1. สร้าง Anomaly Maps ---
-            print("    กำลังสร้าง Anomaly Maps...")
+            self.logger.info("    กำลังสร้าง Anomaly Maps...")
             try:
                 # Product Map
                 df_prod = anomaly_results['product'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'ANOMALY_STATUS']]
@@ -1630,14 +1630,14 @@ class RevenueETL:
                 grand_total_status = anomaly_results['grand_total']['ANOMALY_STATUS'].values[0]
 
             except KeyError as e:
-                print(f"    Warning: ไม่พบ anomaly key {e}, จะใช้ค่าว่าง")
+                self.logger.warning(f"    Warning: ไม่พบ anomaly key {e}, จะใช้ค่าว่าง")
                 prod_map, serv_map, biz_map, grand_total_status = {}, {}, {}, ''
             except Exception as e:
-                print(f"    Error creating anomaly maps: {e}")
+                self.logger.error(f"    Error creating anomaly maps: {e}")
                 prod_map, serv_map, biz_map, grand_total_status = {}, {}, {}, ''
 
             # --- 2. สร้าง YTD Map ---
-            print("    กำลังสร้าง YTD data map...")
+            self.logger.info("    กำลังสร้าง YTD data map...")
             ytd_map = {}
             if df_adj_ytd is not None and not df_adj_ytd.empty:
 
@@ -1656,7 +1656,7 @@ class RevenueETL:
                     ytd_map[Config.FINANCIAL_INCOME_NAME] = ytd_summary.get(Config.FINANCIAL_INCOME_NAME, 0)
                     ytd_map[Config.OTHER_REVENUE_ADJ_NAME] = ytd_summary.get(Config.OTHER_REVENUE_ADJ_NAME, 0)
                 else:
-                    print("    Warning: ไม่พบคอลัมน์ 'TYPE' ในไฟล์ YTD")
+                    self.logger.warning("    Warning: ไม่พบคอลัมน์ 'TYPE' ในไฟล์ YTD")
 
             print(f"    YTD Map: {ytd_map}")
 
@@ -1912,11 +1912,11 @@ class RevenueETL:
         # ========================================================================
         def format_excel(filename, anomaly_map=None):
             """จัดรูปแบบ Excel ให้สวยงาม"""
-            print("กำลังจัดรูปแบบ Excel...")
+            self.logger.info("กำลังจัดรูปแบบ Excel...")
             try:
                 wb = load_workbook(filename)
             except Exception as e:
-                print(f"  ❌ ไม่สามารถเปิดไฟล์ Excel เพื่อจัดรูปแบบได้: {e}")
+                self.logger.error(f"  ❌ ไม่สามารถเปิดไฟล์ Excel เพื่อจัดรูปแบบได้: {e}")
                 return
 
             for sheet_name in wb.sheetnames:
@@ -2052,7 +2052,7 @@ class RevenueETL:
                                 cell.fill = PatternFill(start_color='C6E0B4', end_color='C6E0B4', fill_type='solid')
 
                     except Exception as e:
-                        print(f"Warning: ไม่สามารถจัดรูปแบบคอลัมน์ Anomaly ได้: {e}")
+                        self.logger.warning(f"Warning: ไม่สามารถจัดรูปแบบคอลัมน์ Anomaly ได้: {e}")
 
                 # Highlight Cell Anomaly
                 if anomaly_map:
@@ -2093,9 +2093,9 @@ class RevenueETL:
 
             try:
                 wb.save(filename)
-                print(f"จัดรูปแบบ Excel เรียบร้อยแล้ว")
+                self.logger.success(f"จัดรูปแบบ Excel เรียบร้อยแล้ว")
             except Exception as e:
-                print(f"❌ ไม่สามารถบันทึกไฟล์ Excel ที่จัดรูปแบบแล้วได้ (อาจจะเปิดค้างอยู่): {e}")
+                self.logger.error(f"❌ ไม่สามารถบันทึกไฟล์ Excel ที่จัดรูปแบบแล้วได้ (อาจจะเปิดค้างอยู่): {e}")
 
         # ========================================================================
         # สร้างรายงาน 2 แบบ
@@ -2109,9 +2109,9 @@ class RevenueETL:
             with pd.ExcelWriter(excel_output_file, engine='openpyxl') as writer:
                 report_asc.to_excel(writer, sheet_name='เรียงเดือนน้อย-มาก', index=False)
                 report_desc.to_excel(writer, sheet_name='เรียงเดือนมาก-น้อย', index=False)
-            print(f"สร้างรายงานเรียบร้อยแล้ว: {excel_output_file}")
+            self.logger.success(f"สร้างรายงานเรียบร้อยแล้ว: {excel_output_file}")
         except Exception as e:
-            print(f"❌ ไม่สามารถบันทึกไฟล์ Excel ได้ (อาจจะเปิดค้างอยู่): {e}")
+            self.logger.error(f"❌ ไม่สามารถบันทึกไฟล์ Excel ได้ (อาจจะเปิดค้างอยู่): {e}")
             raise
 
         # Format Excel
@@ -2119,28 +2119,28 @@ class RevenueETL:
 
         # เพิ่ม Anomaly Detection Sheets
         print("\n" + "=" * 80)
-        print("เพิ่ม Anomaly Detection Report...")
+        self.logger.info("เพิ่ม Anomaly Detection Report...")
         print("=" * 80)
 
         try:
             self.create_anomaly_report_sheets(anomaly_results, excel_output_file)
         except Exception as e:
-            print(f"❌ เกิดข้อผิดพลาดในการเพิ่ม Anomaly Sheets: {str(e)}")
+            self.logger.error(f"❌ เกิดข้อผิดพลาดในการเพิ่ม Anomaly Sheets: {str(e)}")
             import traceback
             traceback.print_exc()
 
         # สรุปผลลัพธ์
         print("\n" + "=" * 80)
-        print("สรุปข้อมูล:")
-        print("=" * 80)
-        print(f"จำนวนแถวทั้งหมด (NT1 + ADJ): {len(df_result):,}")
-        print(f"ยอดรวมทั้งหมด (NT1 + ADJ): {df_result['REVENUE_VALUE'].sum():,.2f}")
-        print(f"จำนวนเดือน: {df_result['MONTH'].nunique()}")
+        self.logger.info("สรุปข้อมูล:")
+        self.logger.info("=" * 80)
+        self.logger.info(f"จำนวนแถวทั้งหมด (NT1 + ADJ): {len(df_result):,}")
+        self.logger.info(f"ยอดรวมทั้งหมด (NT1 + ADJ): {df_result['REVENUE_VALUE'].sum():,.2f}")
+        self.logger.info(f"จำนวนเดือน: {df_result['MONTH'].nunique()}")
         print(f"จำนวน Product (รวม ADJ): {df_result['PRODUCT_KEY'].nunique()}")
 
         print("\n" + "=" * 80)
         print("Anomaly Detection Summary:")
-        print("=" * 80)
+        self.logger.info("=" * 80)
         if not anomaly_results:
             print("  ไม่มีผลลัพธ์การตรวจสอบ Anomaly (อาจมีข้อมูลไม่พอ)")
         else:
