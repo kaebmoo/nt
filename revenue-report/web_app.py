@@ -1260,23 +1260,28 @@ def show_configuration():
     st.markdown("---")
     st.markdown("## 2️⃣ FI Module Configuration")
 
+    st.warning("⚠️ **คำเตือน**: การเปลี่ยนแปลง Master Files และ Input Files อาจส่งผลกระทบต่อการประมวลผลข้อมูล กรุณาตรวจสอบให้แน่ใจว่าไฟล์มีอยู่จริงและ format ถูกต้อง")
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.markdown("### Input Files")
+        st.markdown("### 🟠 :orange[Input Files] *(Important)*")
+        st.caption("📥 ระบุชื่อไฟล์ input ที่ต้องการประมวลผล - รองรับ template {YYYYMMDD}")
         fi_input_files = config['fi_module']['input_files']
         for idx, filename in enumerate(fi_input_files):
             st.text_input(f"Input File {idx+1}", value=filename, key=f"fi_input_{idx}")
 
     with col2:
-        st.markdown("### Master Files")
+        st.markdown("### 🔵 :blue[Master Files] *(Critical)*")
+        st.caption("📚 ไฟล์ Master สำหรับ mapping GL codes - เปลี่ยนแปลงเฉพาะเมื่อมีไฟล์ Master ใหม่")
         fi_master_expense = st.text_input("Expense", value=config['fi_module']['master_files']['expense'], key="fi_master_expense")
         fi_master_revenue = st.text_input("Revenue", value=config['fi_module']['master_files']['revenue'], key="fi_master_revenue")
         fi_master_other = st.text_input("Other Revenue", value=config['fi_module']['master_files']['other_revenue'], key="fi_master_other")
         fi_master_net = st.text_input("Revenue Expense Net", value=config['fi_module']['master_files']['revenue_expense_net'], key="fi_master_net")
 
     with col3:
-        st.markdown("### Output Files")
+        st.markdown("### 🟢 :green[Output Files] *(Info)*")
+        st.caption("💾 ชื่อไฟล์ผลลัพธ์ที่จะถูกสร้างขึ้น - รองรับ template {YYYYMM}")
         fi_output_excel = st.text_input("Excel Output", value=config['fi_module']['output_files']['excel'], key="fi_output_excel")
         fi_output_csv_expense = st.text_input("CSV Expense", value=config['fi_module']['output_files']['csv_expense'], key="fi_output_csv_expense")
         fi_output_csv_revenue = st.text_input("CSV Revenue", value=config['fi_module']['output_files']['csv_revenue'], key="fi_output_csv_revenue")
@@ -1285,30 +1290,39 @@ def show_configuration():
     st.markdown("---")
     st.markdown("## 3️⃣ ETL Module Configuration")
 
+    st.warning("⚠️ **คำเตือน**: Master Files และ Input Patterns มีความสำคัญต่อการ mapping และ transformation ของข้อมูล")
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("### Master Files")
+        st.markdown("### 🔵 :blue[Master Files] *(Critical)*")
+        st.caption("📚 ไฟล์ Master สำหรับ mapping products, GL codes และ cost centers")
         etl_master_product = st.text_input("Product Master", value=config['etl_module']['master_files']['product'], key="etl_master_product")
         etl_master_gl = st.text_input("GL Code Master", value=config['etl_module']['master_files']['gl_code'], key="etl_master_gl")
         etl_master_mapping_cc = st.text_input("Mapping Cost Center", value=config['etl_module']['master_files']['mapping_cc'], key="etl_master_mapping_cc")
         etl_master_mapping_product = st.text_input("Mapping Product", value=config['etl_module']['master_files']['mapping_product'], key="etl_master_mapping_product")
 
-        st.markdown("### Input Patterns")
+        st.markdown("### 🟠 :orange[Input Patterns] *(Important)*")
+        st.caption("📥 Pattern สำหรับค้นหาไฟล์ input - รองรับ wildcards (*)")
         etl_input_main = st.text_area(
             "Main Files (comma-separated)",
             value=", ".join(config['etl_module']['input_patterns']['main_files']),
-            key="etl_input_main"
+            key="etl_input_main",
+            help="รายการไฟล์หลัก เช่น TRN_REVENUE_NT1_*.csv, TRN_REVENUE_ADJ_GL_NT1_*.csv"
         )
-        etl_input_adj_monthly = st.text_input("Adj Monthly", value=config['etl_module']['input_patterns']['adj_monthly'], key="etl_input_adj_monthly")
-        etl_input_adj_ytd = st.text_input("Adj YTD", value=config['etl_module']['input_patterns']['adj_ytd'], key="etl_input_adj_ytd")
+        etl_input_adj_monthly = st.text_input("Adj Monthly", value=config['etl_module']['input_patterns']['adj_monthly'], key="etl_input_adj_monthly", help="ไฟล์ปรับปรุงรายเดือน")
+        etl_input_adj_ytd = st.text_input("Adj YTD", value=config['etl_module']['input_patterns']['adj_ytd'], key="etl_input_adj_ytd", help="ไฟล์ปรับปรุงสะสม")
 
     with col2:
-        st.markdown("### Output Files")
+        st.markdown("### 🟢 :green[Output Files] *(Info)*")
+        st.caption("💾 ชื่อไฟล์ผลลัพธ์จาก ETL pipeline - รองรับ template variables")
         etl_output_concat = st.text_input("Concat File", value=config['etl_module']['output_files']['concat'], key="etl_output_concat")
         etl_output_mapped_cc = st.text_input("Mapped Cost Center", value=config['etl_module']['output_files']['mapped_cc'], key="etl_output_mapped_cc")
         etl_output_mapped_product = st.text_input("Mapped Product", value=config['etl_module']['output_files']['mapped_product'], key="etl_output_mapped_product")
         etl_output_final = st.text_input("Final Report", value=config['etl_module']['output_files']['final_report'], key="etl_output_final")
+
+        st.markdown("#### Error Files")
+        st.caption("🚨 ไฟล์ที่บันทึก records ที่ mapping ไม่สำเร็จ")
         etl_output_error_gl = st.text_input("Error GL", value=config['etl_module']['output_files']['error_gl'], key="etl_output_error_gl")
         etl_output_error_product = st.text_input("Error Product", value=config['etl_module']['output_files']['error_product'], key="etl_output_error_product")
 
@@ -1331,19 +1345,23 @@ def show_configuration():
     st.markdown("---")
     st.markdown("## 5️⃣ Reconciliation & Validation")
 
+    st.info("ℹ️ Reconciliation ตรวจสอบความถูกต้องระหว่าง FI และ TRN data - Tolerance ถูก lock ที่ 0.0 (ต้องตรงทุกหลัก)")
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("### Reconciliation")
+        st.markdown("### ✅ Reconciliation")
+        st.caption("🔍 ตรวจสอบความสอดคล้องระหว่างข้อมูล FI และ Transaction")
         reconcile_enabled = st.checkbox(
             "Enable Reconciliation",
             value=config['etl_module']['reconciliation']['enabled'],
             key="reconcile_enabled"
         )
-        st.info("ℹ️ Tolerance ถูกกำหนดเป็น 0.0 เสมอ (ไม่สามารถแก้ไขได้)")
+        st.warning("⚠️ **Tolerance = 0.0** (ถาวร) - ข้อมูลต้องตรงกันทุกหลัก")
 
     with col2:
-        st.markdown("### Validation")
+        st.markdown("### ✅ Validation")
+        st.caption("🔍 ตรวจสอบความถูกต้องของข้อมูลก่อนสร้างรายงาน")
         validation_threshold = st.number_input(
             "Grand Total Diff Threshold",
             min_value=0.0,
@@ -1351,16 +1369,21 @@ def show_configuration():
             value=config['etl_module']['validation']['grand_total_diff_threshold'],
             step=0.01,
             format="%.2f",
-            key="validation_threshold"
+            key="validation_threshold",
+            help="ค่าความแตกต่างสูงสุดที่ยอมรับได้ (0.01 = 1%)"
         )
 
     # Section 6: Anomaly Detection
     st.markdown("---")
     st.markdown("## 6️⃣ Anomaly Detection")
 
+    st.info("ℹ️ Anomaly Detection ใช้ IQR (Interquartile Range) วิเคราะห์ค่าผิดปกติในรายได้แต่ละเดือน - ปรับค่าพารามิเตอร์ได้ตามต้องการ")
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
+        st.markdown("### 🚨 Detection Settings")
+        st.caption("เปิด/ปิด การตรวจจับความผิดปกติ")
         anomaly_enabled = st.checkbox(
             "Enable Anomaly Detection",
             value=config['etl_module']['anomaly_detection']['enabled'],
@@ -1373,17 +1396,21 @@ def show_configuration():
             value=config['etl_module']['anomaly_detection']['iqr_multiplier'],
             step=0.1,
             format="%.1f",
-            key="anomaly_iqr"
+            key="anomaly_iqr",
+            help="ค่าคูณ IQR สำหรับกำหนด outliers (1.5 = standard, 3.0 = conservative)"
         )
 
     with col2:
+        st.markdown("### 📊 Historical Settings")
+        st.caption("จำนวนเดือนสำหรับการวิเคราะห์")
         anomaly_min_history = st.number_input(
             "Min History",
             min_value=2,
             max_value=12,
             value=config['etl_module']['anomaly_detection']['min_history'],
             step=1,
-            key="anomaly_min_history"
+            key="anomaly_min_history",
+            help="จำนวนเดือนขั้นต่ำที่ต้องมีก่อนเริ่มตรวจจับ anomaly"
         )
         anomaly_rolling_window = st.number_input(
             "Rolling Window",
@@ -1391,7 +1418,8 @@ def show_configuration():
             max_value=12,
             value=config['etl_module']['anomaly_detection']['rolling_window'],
             step=1,
-            key="anomaly_rolling_window"
+            key="anomaly_rolling_window",
+            help="จำนวนเดือนสำหรับคำนวณ rolling average"
         )
 
     with col3:
