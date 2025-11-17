@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
 import os
 import traceback
+from logger_utils import ETLLogger
 
 
 class FIRevenueExpenseProcessor:
@@ -32,35 +33,37 @@ class FIRevenueExpenseProcessor:
         self.config = config
         self.paths = config['paths']
         self.year = config['year']
-        
+
+        # Setup logger
+        self.logger = ETLLogger.get_logger('fi_module')
+
         # ตั้งค่า pandas display
         pd.options.display.float_format = '{:,.2f}'.format
-        
+
         # Master DataFrames
         self.master_expense_gl = None
         self.master_revenue_gl = None
-        
+
         # Results
         self.results = {}
-        
+
         # สร้าง directories
         self._setup_directories()
         
     def _setup_directories(self) -> None:
         """สร้าง directories ที่จำเป็น"""
         Path(self.paths['output']).mkdir(parents=True, exist_ok=True)
-        print(f"✓ ตรวจสอบ/สร้าง Output Directory: {self.paths['output']}")
-    
+        self.logger.success(f"ตรวจสอบ/สร้าง Output Directory: {self.paths['output']}")
+
     def log(self, message: str, level: str = "INFO") -> None:
         """
         แสดงข้อความ log
-        
+
         Args:
             message: ข้อความที่ต้องการแสดง
             level: ระดับของ log (INFO, WARNING, ERROR, SUCCESS)
         """
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] [{level}] {message}")
+        self.logger.log(message, level)
     
     def load_master_files(self) -> bool:
         """
