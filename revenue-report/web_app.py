@@ -295,8 +295,8 @@ def main():
                 )
 
                 if st.button("💾 Save All Changes"):
-                    # Update year
-                    st.session_state.config_manager.update_config('', 'processing_year', new_year)
+                    # Update year (root level)
+                    st.session_state.config_manager.config['processing_year'] = new_year
 
                     # Update months
                     st.session_state.config_manager.set_processing_month(fi_month, update_etl=False)
@@ -311,12 +311,16 @@ def main():
                     st.session_state.config_manager.config['etl_module']['anomaly_detection']['enabled'] = anomaly_enabled
                     st.session_state.config_manager.config['etl_module']['anomaly_detection']['iqr_multiplier'] = iqr_multiplier
 
+                    # Reload paths (เพราะ year อาจเปลี่ยน)
+                    st.session_state.config_manager._setup_paths()
+
                     # Reload config in system
                     if st.session_state.system:
                         st.session_state.system.fi_config = st.session_state.config_manager.get_fi_config()
                         st.session_state.system.etl_config = st.session_state.config_manager.get_etl_config()
 
-                    st.success("✅ Configuration updated")
+                    st.success("✅ Configuration updated successfully")
+                    st.info("💡 Note: Changes are temporary and will be lost on restart unless saved to file")
         
         st.markdown("---")
         
