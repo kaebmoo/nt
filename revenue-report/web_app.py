@@ -252,17 +252,24 @@ def main():
 
                 # Processing Months
                 st.markdown("**Processing Months**")
+
+                # Check if months are in sync
+                current_fi_month = config['processing_months']['fi_current_month']
+                current_etl_month = config['processing_months']['etl_end_month']
+
+                if current_fi_month != current_etl_month:
+                    st.warning(f"⚠️ เดือนไม่ตรงกัน! FI: {current_fi_month:02d}, ETL: {current_etl_month:02d}")
+                    st.error("❌ Reconciliation จะล้มเหลวเมื่อเดือนไม่ตรงกัน")
+                    if st.button("🔄 Sync เดือนให้ตรงกัน (ใช้ค่า FI Month)"):
+                        st.session_state.config_manager.config['processing_months']['etl_end_month'] = current_fi_month
+                        st.rerun()
+
                 fi_month = st.number_input(
-                    "FI Current Month",
+                    "Processing Month (FI & ETL)",
                     min_value=1,
                     max_value=12,
-                    value=config['processing_months']['fi_current_month']
-                )
-                etl_month = st.number_input(
-                    "ETL End Month",
-                    min_value=1,
-                    max_value=12,
-                    value=config['processing_months']['etl_end_month']
+                    value=current_fi_month,
+                    help="เดือนที่ทั้ง FI และ ETL จะประมวลผล (ต้องเท่ากันเสมอ)"
                 )
 
                 # Reconciliation Settings
@@ -298,10 +305,8 @@ def main():
                     # Update year (root level)
                     st.session_state.config_manager.config['processing_year'] = new_year
 
-                    # Update months
-                    st.session_state.config_manager.set_processing_month(fi_month, update_etl=False)
-                    if etl_month != fi_month:
-                        st.session_state.config_manager.config['processing_months']['etl_end_month'] = etl_month
+                    # Update months (sync ทั้ง FI และ ETL ให้เท่ากันเสมอ)
+                    st.session_state.config_manager.set_processing_month(fi_month, update_etl=True)
 
                     # Update reconciliation
                     st.session_state.config_manager.config['etl_module']['reconciliation']['enabled'] = reconcile_enabled
@@ -319,7 +324,7 @@ def main():
                         st.session_state.system.fi_config = st.session_state.config_manager.get_fi_config()
                         st.session_state.system.etl_config = st.session_state.config_manager.get_etl_config()
 
-                    st.success("✅ Configuration updated successfully")
+                    st.success(f"✅ Configuration updated: Month {fi_month:02d} (FI & ETL synced)")
                     st.info("💡 Note: Changes are temporary and will be lost on restart unless saved to file")
         
         st.markdown("---")
@@ -546,15 +551,28 @@ def show_dashboard():
         st.info("Please load configuration to view dashboard")
         return
     
+    # Check month sync
+    fi_month = st.session_state.config_manager.config['processing_months']['fi_current_month']
+    etl_month = st.session_state.config_manager.config['processing_months']['etl_end_month']
+
+    if fi_month != etl_month:
+        st.error(f"🚨 เดือนไม่ตรงกัน! FI: {fi_month:02d}, ETL: {etl_month:02d} → Reconciliation จะล้มเหลว")
+        st.warning("💡 กรุณาแก้ไขที่ Sidebar → 📝 Edit Configuration → กด 🔄 Sync เดือนให้ตรงกัน")
+        st.markdown("---")
+
     # Summary Cards
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
         year = st.session_state.config_manager.config['processing_year']
-        fi_month = st.session_state.config_manager.config['processing_months']['fi_current_month']
+        month_display = f"{year}-{fi_month:02d}"
+        if fi_month != etl_month:
+            month_display = f"{year}-{fi_month:02d}⚠️"
         st.metric(
             label="Processing Year/Month",
-            value=f"{year}-{fi_month:02d}"
+            value=month_display,
+            delta="Month mismatch!" if fi_month != etl_month else None,
+            delta_color="inverse" if fi_month != etl_month else "normal"
         )
     
     with col2:
