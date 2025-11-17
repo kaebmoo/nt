@@ -681,6 +681,19 @@ class RevenueETL:
                 df_adj_monthly["REVENUE_VALUE"] = pd.to_numeric(
                     df_adj_monthly["REVENUE_VALUE"], errors='coerce'
                 ).fillna(0)
+
+                # Filter ADJ data ให้เหลือเฉพาะเดือนที่กำหนดใน config
+                if hasattr(self.config, 'end_month') and self.config.end_month:
+                    if 'MONTH' in df_adj_monthly.columns:
+                        original_count = len(df_adj_monthly)
+                        df_adj_monthly['MONTH_INT'] = df_adj_monthly['MONTH'].astype(int)
+                        df_adj_monthly = df_adj_monthly[
+                            df_adj_monthly['MONTH_INT'] <= self.config.end_month
+                        ]
+                        df_adj_monthly = df_adj_monthly.drop(columns=['MONTH_INT'])
+                        filtered_count = len(df_adj_monthly)
+                        self.log(f"✓ Filter ADJ Monthly: {original_count} → {filtered_count} records (เดือน 1-{self.config.end_month})", "INFO")
+
                 self.log(f"ยอดรวม ADJ รายเดือน (ที่โหลดได้): {df_adj_monthly['REVENUE_VALUE'].sum():,.2f}")
 
         # --- Load YTD ADJ File ---
@@ -1110,11 +1123,16 @@ class RevenueETL:
         self.log("=" * 80)
         self.log("ANOMALY DETECTION: ตรวจจับความผิดปกติในเดือนล่าสุด")
         self.log("=" * 80)
-        
-        # หาเดือนล่าสุด
+
+        # หาเดือนล่าสุด - ใช้ end_month จาก config แทนการใช้ max จาก data
         df_final['MONTH_INT'] = df_final['MONTH'].astype(int)
-        latest_month = df_final['MONTH_INT'].max()
-        
+        if hasattr(self.config, 'end_month') and self.config.end_month:
+            latest_month = self.config.end_month
+            self.log(f"ใช้เดือนจาก config: {latest_month} (end_month)", "INFO")
+        else:
+            latest_month = df_final['MONTH_INT'].max()
+            self.log(f"ใช้เดือนจาก data: {latest_month} (max month)", "WARNING")
+
         self.log(f"เดือนล่าสุดที่ตรวจสอบ: {latest_month}")
         
         anomaly_results = {}
@@ -1589,6 +1607,13 @@ class RevenueETL:
 
         # แปลง MONTH เป็น int
         agg_data['MONTH'] = agg_data['MONTH'].astype(int)
+
+        # Filter ข้อมูลให้เหลือเฉพาะเดือนที่กำหนด (ป้องกัน Excel มี column เดือนที่ไม่ต้องการ)
+        if hasattr(self.config, 'end_month') and self.config.end_month:
+            original_count = len(agg_data)
+            agg_data = agg_data[agg_data['MONTH'] <= self.config.end_month]
+            filtered_count = len(agg_data)
+            self.logger.info(f"  ✓ Filter Excel Report Data: {original_count} → {filtered_count} records (เดือน 1-{self.config.end_month})")
 
         # สร้างคอลัมน์วันที่ในรูปแบบ DD/MM/YYYY
         agg_data['DATE_STR'] = agg_data.apply(
