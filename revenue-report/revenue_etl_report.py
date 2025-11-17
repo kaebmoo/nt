@@ -28,6 +28,10 @@ class ConfigAdapter:
         # ปีที่ประมวลผล
         self.YEAR = etl_config['year']
 
+        # Month Settings (รองรับ month filtering)
+        self.end_month = etl_config.get('end_month', None)  # เดือนสุดท้ายที่ต้องการประมวลผล
+        self.fi_month = etl_config.get('fi_month', None)    # เดือนของ FI file
+
         # Reconciliation Settings
         reconcile = etl_config.get('reconciliation', {})
         self.RECONCILE_FI_MONTH = reconcile.get('fi_month', '10')
@@ -454,7 +458,42 @@ class RevenueETL:
         # แปลง MONTH เป็น string แบบ 2 หลัก
         df_combined["MONTH"] = df_combined["MONTH"].astype(int).astype(str).str.zfill(2)
         df_combined["SUB_PRODUCT_KEY"] = df_combined["SUB_PRODUCT_KEY"].astype(int).astype(str)
-        
+
+        # === [NEW] Month Filtering: กรองข้อมูลตามช่วงเดือนที่กำหนด ===
+        # ถ้ามี end_month ใน config ให้กรองเฉพาะเดือนที่ต้องการ
+        if hasattr(self.config, 'end_month') and self.config.end_month:
+            end_month = self.config.end_month
+            year = self.config.YEAR
+
+            # แปลง MONTH กลับเป็น int สำหรับการเปรียบเทียบ
+            df_combined_temp = df_combined.copy()
+            df_combined_temp['MONTH_INT'] = df_combined_temp['MONTH'].astype(int)
+
+            # Filter: เอาเฉพาะปีและเดือนที่ต้องการ
+            before_filter_count = len(df_combined_temp)
+            before_filter_total = df_combined_temp["REVENUE_VALUE"].sum()
+
+            df_combined = df_combined_temp[
+                (df_combined_temp['YEAR'] == year) &
+                (df_combined_temp['MONTH_INT'] <= end_month)
+            ].copy()
+
+            # ลบ MONTH_INT ออก (ใช้แค่ชั่วคราว)
+            df_combined = df_combined.drop(columns=['MONTH_INT'])
+
+            after_filter_count = len(df_combined)
+            after_filter_total = df_combined["REVENUE_VALUE"].sum()
+
+            self.log("=" * 80)
+            self.log(f"📅 MONTH FILTERING: กรองข้อมูลเดือน 1 - {end_month:02d}/{year}")
+            self.log(f"  ก่อนกรอง: {before_filter_count:,} แถว, ยอดรวม: {before_filter_total:,.2f}")
+            self.log(f"  หลังกรอง: {after_filter_count:,} แถว, ยอดรวม: {after_filter_total:,.2f}")
+            self.log(f"  ลดลง: {before_filter_count - after_filter_count:,} แถว")
+            self.log("=" * 80)
+        else:
+            self.log("ℹ️  Month Filtering: ไม่กำหนด - ประมวลผลทุกเดือน")
+        # === [END] Month Filtering ===
+
         # ตรวจสอบ GL_CODE ที่ได้
         unique_gl = df_combined["GL_CODE"].nunique()
         self.log(f"จำนวน GL_CODE ที่ไม่ซ้ำกัน: {unique_gl}")

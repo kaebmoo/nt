@@ -20,7 +20,12 @@
   },
   
   "processing_year": "2025",
-  
+
+  "processing_months": {
+    "fi_current_month": 10,
+    "etl_end_month": 10
+  },
+
   "fi_module": {
     "description": "FI Revenue Expense Processing Configuration",
     "input_subpath": "fi",
@@ -28,7 +33,7 @@
     "master_subpath": "source",
     
     "input_files": [
-      "pld_nt_20251031.txt"
+      "pld_nt_{YYYYMMDD}.txt"
     ],
     
     "master_files": {
@@ -39,9 +44,9 @@
     },
     
     "output_files": {
-      "excel": "pl_combined_output_202510.xlsx",
-      "csv_expense": "pl_expense_nt_output_202510.csv",
-      "csv_revenue": "pl_revenue_nt_output_202510.csv"
+      "excel": "pl_combined_output_{YYYYMM}.xlsx",
+      "csv_expense": "pl_expense_nt_output_{YYYYMM}.csv",
+      "csv_revenue": "pl_revenue_nt_output_{YYYYMM}.csv"
     },
     
     "encoding": {
@@ -65,7 +70,7 @@
     
     "reconciliation": {
       "enabled": true,
-      "fi_month": "10",
+      "fi_month": "{FI_MONTH}",
       "tolerance": 0.00
     },
     
