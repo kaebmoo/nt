@@ -22,6 +22,8 @@ from pathlib import Path
 from config_manager import ConfigManager, get_config_manager
 from fi_revenue_expense_module import FIRevenueExpenseProcessor
 from main import RevenueETLSystem
+from logger_utils import ETLLogger
+import glob
 
 # Page Configuration
 st.set_page_config(
@@ -96,6 +98,112 @@ def get_etl_status():
         return st.session_state.system.etl_completed
     return st.session_state.etl_completed
 
+def check_file_exists(file_path: str) -> dict:
+    """
+    ตรวจสอบว่าไฟล์มีอยู่จริงและคืนข้อมูล
+
+    Returns:
+        dict: {'exists': bool, 'size_kb': float, 'path': str}
+    """
+    if os.path.exists(file_path):
+        size_kb = os.path.getsize(file_path) / 1024
+        return {'exists': True, 'size_kb': size_kb, 'path': file_path}
+    return {'exists': False, 'size_kb': 0, 'path': file_path}
+
+def get_latest_log_content(log_dir: str = "logs", max_lines: int = 100) -> str:
+    """
+    อ่าน log files ล่าสุด
+
+    Args:
+        log_dir: โฟลเดอร์ log
+        max_lines: จำนวนบรรทัดสูงสุด
+
+    Returns:
+        str: เนื้อหา log
+    """
+    try:
+        log_files = glob.glob(f"{log_dir}/*.log")
+        if not log_files:
+            return "No log files found"
+
+        # หาไฟล์ล่าสุด
+        latest_log = max(log_files, key=os.path.getmtime)
+
+        with open(latest_log, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            # คืน n บรรทัดสุดท้าย
+            return ''.join(lines[-max_lines:])
+    except Exception as e:
+        return f"Error reading logs: {e}"
+
+def get_reconciliation_results(log_dir: str = "logs") -> dict:
+    """
+    อ่านผล reconciliation จาก log files
+
+    Returns:
+        dict: ผล reconciliation
+    """
+    try:
+        # หา reconciliation log files
+        reconcile_logs = glob.glob(f"{log_dir}/reconcile_*.log")
+        if not reconcile_logs:
+            return None
+
+        latest_log = max(reconcile_logs, key=os.path.getmtime)
+
+        result = {
+            'monthly_passed': False,
+            'ytd_passed': False,
+            'monthly_diff': 0.0,
+            'ytd_diff': 0.0,
+            'fi_total_monthly': 0.0,
+            'trn_total_monthly': 0.0,
+            'fi_total_ytd': 0.0,
+            'trn_total_ytd': 0.0,
+            'log_file': os.path.basename(latest_log)
+        }
+
+        with open(latest_log, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+            # Parse log content (simple parsing)
+            if 'Monthly Reconciliation: PASSED' in content:
+                result['monthly_passed'] = True
+            if 'YTD Reconciliation: PASSED' in content:
+                result['ytd_passed'] = True
+
+            # ค้นหาตัวเลข (simplified - อาจต้อง regex ที่ดีกว่า)
+            lines = content.split('\n')
+            for line in lines:
+                if 'FI Total (Monthly)' in line:
+                    try:
+                        result['fi_total_monthly'] = float(line.split(':')[-1].strip().replace(',', ''))
+                    except:
+                        pass
+                elif 'TRN Total (Monthly)' in line:
+                    try:
+                        result['trn_total_monthly'] = float(line.split(':')[-1].strip().replace(',', ''))
+                    except:
+                        pass
+                elif 'FI Total (YTD)' in line:
+                    try:
+                        result['fi_total_ytd'] = float(line.split(':')[-1].strip().replace(',', ''))
+                    except:
+                        pass
+                elif 'TRN Total (YTD)' in line:
+                    try:
+                        result['trn_total_ytd'] = float(line.split(':')[-1].strip().replace(',', ''))
+                    except:
+                        pass
+
+        result['monthly_diff'] = result['fi_total_monthly'] - result['trn_total_monthly']
+        result['ytd_diff'] = result['fi_total_ytd'] - result['trn_total_ytd']
+
+        return result
+    except Exception as e:
+        st.warning(f"Unable to read reconciliation results: {e}")
+        return None
+
 def load_configuration():
     """โหลด configuration จากไฟล์"""
     try:
@@ -141,9 +249,73 @@ def main():
             # Configuration Editor
             with st.expander("📝 Edit Configuration"):
                 new_year = st.text_input("Processing Year", value=config['processing_year'])
-                
-                if st.button("💾 Save Changes"):
+
+                # Processing Months
+                st.markdown("**Processing Months**")
+                fi_month = st.number_input(
+                    "FI Current Month",
+                    min_value=1,
+                    max_value=12,
+                    value=config['processing_months']['fi_current_month']
+                )
+                etl_month = st.number_input(
+                    "ETL End Month",
+                    min_value=1,
+                    max_value=12,
+                    value=config['processing_months']['etl_end_month']
+                )
+
+                # Reconciliation Settings
+                st.markdown("**Reconciliation**")
+                reconcile_enabled = st.checkbox(
+                    "Enable Reconciliation",
+                    value=config['etl_module']['reconciliation']['enabled']
+                )
+                reconcile_tolerance = st.number_input(
+                    "Tolerance",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=config['etl_module']['reconciliation']['tolerance'],
+                    format="%.2f"
+                )
+
+                # Anomaly Detection Settings
+                st.markdown("**Anomaly Detection**")
+                anomaly_enabled = st.checkbox(
+                    "Enable Anomaly Detection",
+                    value=config['etl_module']['anomaly_detection']['enabled']
+                )
+                iqr_multiplier = st.number_input(
+                    "IQR Multiplier",
+                    min_value=1.0,
+                    max_value=3.0,
+                    value=config['etl_module']['anomaly_detection']['iqr_multiplier'],
+                    step=0.1,
+                    format="%.1f"
+                )
+
+                if st.button("💾 Save All Changes"):
+                    # Update year
                     st.session_state.config_manager.update_config('', 'processing_year', new_year)
+
+                    # Update months
+                    st.session_state.config_manager.set_processing_month(fi_month, update_etl=False)
+                    if etl_month != fi_month:
+                        st.session_state.config_manager.config['processing_months']['etl_end_month'] = etl_month
+
+                    # Update reconciliation
+                    st.session_state.config_manager.config['etl_module']['reconciliation']['enabled'] = reconcile_enabled
+                    st.session_state.config_manager.config['etl_module']['reconciliation']['tolerance'] = reconcile_tolerance
+
+                    # Update anomaly detection
+                    st.session_state.config_manager.config['etl_module']['anomaly_detection']['enabled'] = anomaly_enabled
+                    st.session_state.config_manager.config['etl_module']['anomaly_detection']['iqr_multiplier'] = iqr_multiplier
+
+                    # Reload config in system
+                    if st.session_state.system:
+                        st.session_state.system.fi_config = st.session_state.config_manager.get_fi_config()
+                        st.session_state.system.etl_config = st.session_state.config_manager.get_etl_config()
+
                     st.success("✅ Configuration updated")
         
         st.markdown("---")
@@ -216,20 +388,49 @@ def run_all_modules():
         st.error("❌ Please load configuration first")
         return
 
-    with st.spinner("Processing all modules..."):
-        # เรียก run_all() ที่มีอยู่แล้วใน main.py
-        success = st.session_state.system.run_all()
+    # Progress tracking
+    progress_bar = st.progress(0)
+    status_text = st.empty()
 
-        if success:
-            # ซิงค์สถานะจาก system instance (source of truth)
-            sync_status_from_system()
+    try:
+        # Step 1: FI Module
+        status_text.text("⏳ Running FI Module...")
+        progress_bar.progress(10)
 
-            st.balloons()
-            st.success("🎉 All modules completed successfully!")
-        else:
-            # ซิงค์สถานะแม้ล้มเหลว (เพื่อแสดงสถานะที่ถูกต้อง)
+        if not st.session_state.system.run_fi_module():
             sync_status_from_system()
-            st.error("❌ Processing failed")
+            status_text.text("❌ FI Module failed")
+            st.error("❌ FI Module processing failed")
+            return
+
+        sync_status_from_system()
+        progress_bar.progress(50)
+        status_text.text("✅ FI Module completed")
+
+        # Step 2: ETL Module
+        status_text.text("⏳ Running ETL Module...")
+        progress_bar.progress(60)
+
+        if not st.session_state.system.run_etl_module():
+            sync_status_from_system()
+            status_text.text("❌ ETL Module failed")
+            st.error("❌ ETL Module processing failed")
+            return
+
+        sync_status_from_system()
+        progress_bar.progress(100)
+        status_text.text("✅ All modules completed!")
+
+        st.balloons()
+        st.success("🎉 All modules completed successfully!")
+
+    except Exception as e:
+        sync_status_from_system()
+        status_text.text(f"❌ Error: {str(e)}")
+        st.error(f"❌ Processing failed: {e}")
+    finally:
+        progress_bar.empty()
+        status_text.empty()
 
 def run_fi_module():
     """รัน FI Module"""
@@ -237,15 +438,33 @@ def run_fi_module():
         st.error("❌ Please load configuration first")
         return
 
-    with st.spinner("Running FI Module..."):
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    try:
+        status_text.text("⏳ Initializing FI Module...")
+        progress_bar.progress(20)
+
+        status_text.text("⏳ Processing FI data...")
+        progress_bar.progress(40)
+
         if st.session_state.system.run_fi_module():
-            # ซิงค์สถานะจาก system instance
             sync_status_from_system()
+            progress_bar.progress(100)
+            status_text.text("✅ FI Module completed!")
             st.success("✅ FI Module completed successfully")
         else:
-            # ซิงค์สถานะแม้ล้มเหลว
             sync_status_from_system()
+            status_text.text("❌ FI Module failed")
             st.error("❌ FI Module failed")
+
+    except Exception as e:
+        sync_status_from_system()
+        status_text.text(f"❌ Error: {str(e)}")
+        st.error(f"❌ FI Module failed: {e}")
+    finally:
+        progress_bar.empty()
+        status_text.empty()
 
 def run_etl_module():
     """
@@ -256,21 +475,63 @@ def run_etl_module():
         st.error("❌ Please load configuration first")
         return
 
-    with st.spinner("Running ETL Module..."):
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    try:
+        # Check if FI module needs to run first
+        if not get_fi_status():
+            status_text.text("⏳ FI Module not completed. Running FI Module first...")
+            progress_bar.progress(10)
+
+        status_text.text("⏳ Initializing ETL Module...")
+        progress_bar.progress(20)
+
+        status_text.text("⏳ Processing revenue data...")
+        progress_bar.progress(40)
+
+        status_text.text("⏳ Running reconciliation...")
+        progress_bar.progress(60)
+
+        status_text.text("⏳ Detecting anomalies...")
+        progress_bar.progress(80)
+
+        status_text.text("⏳ Generating reports...")
+        progress_bar.progress(90)
+
         if st.session_state.system.run_etl_module():
-            # ซิงค์สถานะจาก system instance
             sync_status_from_system()
+            progress_bar.progress(100)
+            status_text.text("✅ ETL Module completed!")
             st.success("✅ ETL Module completed successfully")
         else:
-            # ซิงค์สถานะแม้ล้มเหลว
             sync_status_from_system()
+            status_text.text("❌ ETL Module failed")
             st.error("❌ ETL Module failed")
+
+    except Exception as e:
+        sync_status_from_system()
+        status_text.text(f"❌ Error: {str(e)}")
+        st.error(f"❌ ETL Module failed: {e}")
+    finally:
+        progress_bar.empty()
+        status_text.empty()
 
 def reset_system():
     """รีเซ็ตระบบ"""
+    # รีเซ็ต session state
     st.session_state.fi_completed = False
     st.session_state.etl_completed = False
     st.session_state.processing_status = None
+
+    # รีเซ็ต system instance ถ้ามี
+    if st.session_state.system:
+        st.session_state.system.fi_completed = False
+        st.session_state.system.etl_completed = False
+        st.session_state.system.fi_output = None
+        st.session_state.system.etl_final_df = None
+        st.session_state.system.etl_anomaly_results = None
+
     st.success("🔄 System reset completed")
 
 def show_dashboard():
@@ -285,9 +546,11 @@ def show_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        year = st.session_state.config_manager.config['processing_year']
+        fi_month = st.session_state.config_manager.config['processing_months']['fi_current_month']
         st.metric(
-            label="Processing Year",
-            value=st.session_state.config_manager.config['processing_year']
+            label="Processing Year/Month",
+            value=f"{year}-{fi_month:02d}"
         )
     
     with col2:
@@ -331,14 +594,86 @@ def show_dashboard():
     st.markdown("---")
     st.subheader("📁 File Status")
 
-    if get_fi_status() and st.session_state.system and st.session_state.system.fi_output:
-        st.markdown("### FI Output Files")
-        for key, path in st.session_state.system.fi_output.items():
-            if os.path.exists(path):
-                size = os.path.getsize(path) / 1024  # KB
-                st.success(f"✅ {key}: {os.path.basename(path)} ({size:.2f} KB)")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("### Master Files")
+        # Check FI master files
+        fi_config = st.session_state.config_manager.config['fi_module']
+        master_path = st.session_state.config_manager.get_master_path()
+
+        for key, filename in fi_config['master_files'].items():
+            # Handle files with 'source/' prefix
+            if filename.startswith('source/'):
+                full_path = os.path.join(master_path, filename)
             else:
-                st.error(f"❌ {key}: File not found")
+                full_path = os.path.join(master_path, filename)
+
+            file_info = check_file_exists(full_path)
+            if file_info['exists']:
+                st.success(f"✅ {key}: {os.path.basename(filename)} ({file_info['size_kb']:.1f} KB)")
+            else:
+                st.error(f"❌ {key}: {os.path.basename(filename)} (Not found)")
+
+    with col2:
+        if get_fi_status() and st.session_state.system and st.session_state.system.fi_output:
+            st.markdown("### FI Output Files")
+            for key, path in st.session_state.system.fi_output.items():
+                file_info = check_file_exists(path)
+                if file_info['exists']:
+                    st.success(f"✅ {key}: {os.path.basename(path)} ({file_info['size_kb']:.1f} KB)")
+                else:
+                    st.error(f"❌ {key}: File not found")
+
+    # ETL Output Files
+    if get_etl_status() and st.session_state.system:
+        st.markdown("---")
+        st.markdown("### ETL Output Files")
+
+        etl_config = st.session_state.config_manager.get_etl_config()
+        output_path = etl_config['paths']['output']
+        final_output_path = etl_config['paths']['final_output']
+
+        output_files = etl_config['output_files']
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("**Intermediate Files**")
+            for key in ['concat', 'mapped_cc', 'mapped_product']:
+                if key in output_files:
+                    file_path = os.path.join(output_path, output_files[key])
+                    file_info = check_file_exists(file_path)
+                    if file_info['exists']:
+                        st.success(f"✅ {key}")
+                        st.caption(f"{file_info['size_kb']:.1f} KB")
+                    else:
+                        st.warning(f"⚠️ {key}")
+
+        with col2:
+            st.markdown("**Final Report**")
+            final_file = os.path.join(final_output_path, output_files['final_report'])
+            file_info = check_file_exists(final_file)
+            if file_info['exists']:
+                st.success(f"✅ Final Report")
+                st.caption(f"{file_info['size_kb']:.1f} KB")
+            else:
+                st.warning(f"⚠️ Final Report")
+
+        with col3:
+            st.markdown("**Error Files**")
+            for key in ['error_gl', 'error_product']:
+                if key in output_files:
+                    file_path = os.path.join(final_output_path, output_files[key])
+                    file_info = check_file_exists(file_path)
+                    if file_info['exists']:
+                        if file_info['size_kb'] > 1:  # มี errors
+                            st.error(f"⚠️ {key}")
+                            st.caption(f"{file_info['size_kb']:.1f} KB")
+                        else:
+                            st.success(f"✅ {key} (empty)")
+                    else:
+                        st.info(f"ℹ️ {key}")
 
 def show_fi_module():
     """แสดงหน้า FI Module"""
@@ -453,20 +788,66 @@ def show_etl_module():
     # Configuration
     st.markdown("---")
     st.markdown("### ⚙️ ETL Configuration")
-    
+
+    # Business Rules
+    with st.expander("📋 Business Rules", expanded=False):
+        rules = etl_config['business_rules']
+        st.markdown("""
+        **Revenue Classification Rules:**
+        """)
+        st.info(f"**Exclude Business Group:** {rules['exclude_business_group']}")
+        st.info(f"**Non-Telecom Service Group:** {rules['non_telecom_service_group']}")
+        st.info(f"**New Adjustment Business Group:** {rules['new_adj_business_group']}")
+        st.info(f"**Financial Income Name:** {rules['financial_income_name']}")
+        st.info(f"**Other Revenue Adj Name:** {rules['other_revenue_adj_name']}")
+
+    # Special Mappings
+    with st.expander("🔄 Special Mappings", expanded=False):
+        if 'special_mappings' in etl_config and etl_config['special_mappings']:
+            for idx, mapping in enumerate(etl_config['special_mappings'], 1):
+                st.markdown(f"**Mapping {idx}: {mapping['name']}**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("*Condition:*")
+                    st.json(mapping['condition'])
+                with col2:
+                    st.markdown("*Maps to:*")
+                    st.json(mapping['mapping'])
+                st.markdown("---")
+        else:
+            st.info("No special mappings configured")
+
+    # Reconciliation & Validation
     col1, col2 = st.columns(2)
-    
+
     with col1:
-        st.json({
-            "Reconciliation": etl_config['reconciliation'],
-            "Business Rules": etl_config['business_rules']
-        })
-    
+        with st.expander("✅ Reconciliation Settings"):
+            st.json(etl_config['reconciliation'])
+
+        with st.expander("🔍 Validation Rules"):
+            validation = etl_config['validation']
+            st.markdown(f"**Grand Total Diff Threshold:** {validation['grand_total_diff_threshold']}")
+            st.markdown("**Required Columns:**")
+            for col in validation['required_columns']:
+                st.text(f"• {col}")
+
     with col2:
-        st.json({
-            "Anomaly Detection": etl_config['anomaly_detection'],
-            "Validation": etl_config['validation']
-        })
+        with st.expander("🚨 Anomaly Detection Settings"):
+            anomaly_cfg = etl_config['anomaly_detection']
+            st.markdown(f"**Enabled:** {anomaly_cfg['enabled']}")
+            st.markdown(f"**IQR Multiplier:** {anomaly_cfg['iqr_multiplier']}")
+            st.markdown(f"**Min History:** {anomaly_cfg['min_history']}")
+            st.markdown(f"**Rolling Window:** {anomaly_cfg['rolling_window']}")
+            st.markdown(f"**Historical Highlight:** {anomaly_cfg['enable_historical_highlight']}")
+
+            st.markdown("**Detection Levels:**")
+            for level, config in anomaly_cfg['levels'].items():
+                with st.container():
+                    st.markdown(f"*{level.replace('_', ' ').title()}*")
+                    if config['group_by']:
+                        st.caption(f"Group by: {', '.join(config['group_by'])}")
+                    else:
+                        st.caption("Group by: Grand Total")
     
     # Run ETL
     if st.button("▶️ Run ETL Pipeline"):
@@ -479,48 +860,122 @@ def show_reconciliation():
     if not get_etl_status():
         st.info("Please complete ETL processing first")
         return
-    
+
+    # อ่านผลจาก log files
+    reconcile_result = get_reconciliation_results()
+
+    if not reconcile_result:
+        st.warning("⚠️ No reconciliation results found. Reconciliation may be disabled or logs not available.")
+
+        # แสดง config
+        config = st.session_state.config_manager.config
+        st.info(f"Reconciliation Enabled: {config['etl_module']['reconciliation']['enabled']}")
+        st.info(f"Tolerance: {config['etl_module']['reconciliation']['tolerance']}")
+        return
+
     st.markdown("### 🔍 Reconciliation Results")
-    
-    # Mock reconciliation results
+
+    # แสดง FI Month ที่ใช้
+    config = st.session_state.config_manager.config
+    fi_month = config['processing_months']['fi_current_month']
+    st.info(f"📅 Reconciliation Month: {fi_month:02d} (FI Current Month)")
+
+    # Summary Metrics
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
+        monthly_status = "PASSED ✅" if reconcile_result['monthly_passed'] else "FAILED ❌"
         st.metric(
             label="Monthly Reconciliation",
-            value="PASSED",
-            delta="0 errors"
+            value=monthly_status,
+            delta=f"{reconcile_result['monthly_diff']:,.2f}"
         )
-    
+
     with col2:
+        ytd_status = "PASSED ✅" if reconcile_result['ytd_passed'] else "FAILED ❌"
         st.metric(
             label="YTD Reconciliation",
-            value="PASSED",
-            delta="0 errors"
+            value=ytd_status,
+            delta=f"{reconcile_result['ytd_diff']:,.2f}"
         )
-    
+
     with col3:
+        tolerance = config['etl_module']['reconciliation']['tolerance']
         st.metric(
             label="Tolerance",
-            value="0.00",
-            delta="±0.00"
+            value=f"±{tolerance:.2f}",
+            delta=f"Log: {reconcile_result['log_file']}"
         )
-    
+
     # Details
     st.markdown("---")
     st.markdown("### 📊 Reconciliation Details")
-    
-    # Create sample reconciliation data
+
+    # Create reconciliation data
     reconcile_data = {
         "Type": ["Monthly", "YTD"],
-        "FI Total": [1000000.00, 10000000.00],
-        "TRN Total": [1000000.00, 10000000.00],
-        "Difference": [0.00, 0.00],
-        "Status": ["✅ PASSED", "✅ PASSED"]
+        "FI Total": [
+            reconcile_result['fi_total_monthly'],
+            reconcile_result['fi_total_ytd']
+        ],
+        "TRN Total": [
+            reconcile_result['trn_total_monthly'],
+            reconcile_result['trn_total_ytd']
+        ],
+        "Difference": [
+            reconcile_result['monthly_diff'],
+            reconcile_result['ytd_diff']
+        ],
+        "Status": [
+            "✅ PASSED" if reconcile_result['monthly_passed'] else "❌ FAILED",
+            "✅ PASSED" if reconcile_result['ytd_passed'] else "❌ FAILED"
+        ]
     }
-    
+
     df_reconcile = pd.DataFrame(reconcile_data)
-    st.dataframe(df_reconcile, width='stretch')
+
+    # Format numbers
+    df_reconcile['FI Total'] = df_reconcile['FI Total'].apply(lambda x: f"{x:,.2f}")
+    df_reconcile['TRN Total'] = df_reconcile['TRN Total'].apply(lambda x: f"{x:,.2f}")
+    df_reconcile['Difference'] = df_reconcile['Difference'].apply(lambda x: f"{x:,.2f}")
+
+    st.dataframe(df_reconcile, use_container_width=True)
+
+    # Validation Results
+    st.markdown("---")
+    st.markdown("### 🔍 Validation Results")
+
+    if st.session_state.system and st.session_state.system.etl_final_df is not None:
+        df = st.session_state.system.etl_final_df
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Total Records", f"{len(df):,}")
+
+        with col2:
+            # Count unique products
+            if 'PRODUCT_KEY' in df.columns:
+                st.metric("Unique Products", f"{df['PRODUCT_KEY'].nunique():,}")
+
+        with col3:
+            # Total Revenue
+            if 'REVENUE_VALUE' in df.columns:
+                total_revenue = df['REVENUE_VALUE'].sum()
+                st.metric("Total Revenue", f"{total_revenue:,.2f}")
+
+        # Required columns check
+        validation_config = config['etl_module']['validation']
+        required_cols = validation_config['required_columns']
+
+        missing_cols = [col for col in required_cols if col not in df.columns]
+
+        if missing_cols:
+            st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
+        else:
+            st.success(f"✅ All required columns present ({len(required_cols)} columns)")
+    else:
+        st.info("ETL data not available in session")
 
 def show_analytics():
     """แสดงหน้า Analytics"""
@@ -529,82 +984,308 @@ def show_analytics():
     if not get_etl_status():
         st.info("Please complete processing to view analytics")
         return
-    
-    # Sample analytics
-    st.markdown("### 📊 Revenue Trends")
-    
-    # Create sample data
-    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct']
-    revenue = [100, 110, 105, 120, 125, 130, 128, 135, 140, 145]
-    expense = [80, 85, 82, 90, 92, 95, 93, 98, 100, 102]
-    
-    # Revenue vs Expense Chart
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=months,
-        y=revenue,
-        mode='lines+markers',
-        name='Revenue',
-        line=dict(color='green', width=3)
-    ))
-    fig.add_trace(go.Scatter(
-        x=months,
-        y=expense,
-        mode='lines+markers',
-        name='Expense',
-        line=dict(color='red', width=3)
-    ))
-    fig.update_layout(
-        title='Revenue vs Expense Trend',
-        xaxis_title='Month',
-        yaxis_title='Amount (Million THB)',
-        height=400
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    
+
     # Anomaly Detection Results
-    st.markdown("### 🚨 Anomaly Detection")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(label="High Spikes", value="3", delta="+2")
-    with col2:
-        st.metric(label="Low Dips", value="1", delta="-1")
-    with col3:
-        st.metric(label="New Items", value="5", delta="+5")
-    with col4:
-        st.metric(label="Normal", value="92%", delta="0%")
+    st.markdown("### 🚨 Anomaly Detection Results")
+
+    if st.session_state.system and st.session_state.system.etl_anomaly_results:
+        anomaly_results = st.session_state.system.etl_anomaly_results
+
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+
+        total_anomalies = 0
+        high_spikes = 0
+        low_dips = 0
+        new_items = 0
+
+        # Count anomalies from all levels
+        for level_name, level_data in anomaly_results.items():
+            if 'summary' in level_data:
+                total_anomalies += level_data['summary'].get('total_anomalies', 0)
+                high_spikes += level_data['summary'].get('high_spikes', 0)
+                low_dips += level_data['summary'].get('low_dips', 0)
+                new_items += level_data['summary'].get('new_items', 0)
+
+        with col1:
+            st.metric("Total Anomalies", f"{total_anomalies:,}")
+        with col2:
+            st.metric("High Spikes ↗️", f"{high_spikes:,}")
+        with col3:
+            st.metric("Low Dips ↘️", f"{low_dips:,}")
+        with col4:
+            st.metric("New Items 🆕", f"{new_items:,}")
+
+        # แสดงรายละเอียดแต่ละ level
+        st.markdown("---")
+
+        for level_name, level_data in anomaly_results.items():
+            with st.expander(f"📊 {level_name.replace('_', ' ').title()} Level", expanded=False):
+                if 'dataframe' in level_data and level_data['dataframe'] is not None:
+                    df = level_data['dataframe']
+
+                    # Filter เฉพาะแถวที่มี anomaly
+                    if 'ANOMALY_FLAG' in df.columns:
+                        anomalies_df = df[df['ANOMALY_FLAG'].notna() & (df['ANOMALY_FLAG'] != '')]
+
+                        if len(anomalies_df) > 0:
+                            st.warning(f"Found {len(anomalies_df)} anomalies")
+
+                            # แสดงตาราง
+                            display_cols = [col for col in df.columns if col in [
+                                'BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'PRODUCT_NAME',
+                                'MONTH', 'REVENUE_VALUE', 'ANOMALY_FLAG', 'ANOMALY_TYPE'
+                            ]]
+
+                            if display_cols:
+                                st.dataframe(
+                                    anomalies_df[display_cols].head(20),
+                                    use_container_width=True
+                                )
+                        else:
+                            st.success("No anomalies detected")
+                    else:
+                        st.info("Anomaly detection not performed for this level")
+
+                if 'summary' in level_data:
+                    st.json(level_data['summary'])
+
+    else:
+        st.info("Anomaly detection results not available. Make sure anomaly detection is enabled in configuration.")
+
+    # Revenue Trends (from actual data)
+    st.markdown("---")
+    st.markdown("### 📊 Revenue Trends")
+
+    if st.session_state.system and st.session_state.system.etl_final_df is not None:
+        df = st.session_state.system.etl_final_df
+
+        # Check if we have required columns
+        if 'MONTH' in df.columns and 'REVENUE_VALUE' in df.columns:
+            # Aggregate by month
+            monthly_revenue = df.groupby('MONTH')['REVENUE_VALUE'].sum().reset_index()
+            monthly_revenue = monthly_revenue.sort_values('MONTH')
+
+            # Create line chart
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=monthly_revenue['MONTH'],
+                y=monthly_revenue['REVENUE_VALUE'],
+                mode='lines+markers',
+                name='Revenue',
+                line=dict(color='#00CC96', width=3),
+                marker=dict(size=8)
+            ))
+            fig.update_layout(
+                title='Monthly Revenue Trend',
+                xaxis_title='Month',
+                yaxis_title='Revenue (THB)',
+                height=400,
+                hovermode='x unified'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Revenue by Business Group (if available)
+            if 'BUSINESS_GROUP' in df.columns:
+                st.markdown("### 📊 Revenue by Business Group")
+
+                business_revenue = df.groupby('BUSINESS_GROUP')['REVENUE_VALUE'].sum().reset_index()
+                business_revenue = business_revenue.sort_values('REVENUE_VALUE', ascending=False)
+
+                fig = go.Figure(data=[go.Bar(
+                    x=business_revenue['BUSINESS_GROUP'],
+                    y=business_revenue['REVENUE_VALUE'],
+                    marker_color='#636EFA'
+                )])
+                fig.update_layout(
+                    title='Revenue by Business Group',
+                    xaxis_title='Business Group',
+                    yaxis_title='Revenue (THB)',
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.warning("Required columns (MONTH, REVENUE_VALUE) not found in data")
+
+        # Data Summary
+        st.markdown("---")
+        st.markdown("### 📋 Data Summary")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Dataset Overview**")
+            st.info(f"Total Records: {len(df):,}")
+            st.info(f"Columns: {len(df.columns)}")
+            st.info(f"Memory Usage: {df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
+
+        with col2:
+            st.markdown("**Revenue Statistics**")
+            if 'REVENUE_VALUE' in df.columns:
+                st.info(f"Total Revenue: {df['REVENUE_VALUE'].sum():,.2f}")
+                st.info(f"Average Revenue: {df['REVENUE_VALUE'].mean():,.2f}")
+                st.info(f"Max Revenue: {df['REVENUE_VALUE'].max():,.2f}")
+
+    else:
+        st.info("ETL data not available. Please run ETL processing first.")
 
 def show_logs():
     """แสดงหน้า Logs"""
     st.header("📋 System Logs")
-    
-    # Log display
-    st.markdown("### 📝 Processing Logs")
-    
-    log_text = """
-[2025-01-15 10:00:00] [INFO] System started
-[2025-01-15 10:00:01] [INFO] Configuration loaded successfully
-[2025-01-15 10:00:02] [INFO] FI Module started
-[2025-01-15 10:00:15] [SUCCESS] FI Module completed
-[2025-01-15 10:00:16] [INFO] ETL Module started
-[2025-01-15 10:00:45] [SUCCESS] ETL Module completed
-[2025-01-15 10:00:46] [INFO] Reconciliation started
-[2025-01-15 10:00:50] [SUCCESS] Reconciliation passed
-[2025-01-15 10:00:51] [SUCCESS] All processing completed
-    """
-    
-    st.text_area("System Logs", value=log_text, height=300)
-    
-    # Download logs button
-    if st.button("📥 Download Logs"):
-        st.download_button(
-            label="Download",
-            data=log_text,
-            file_name=f"revenue_etl_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            mime="text/plain"
-        )
+
+    # Log directory
+    log_dir = st.session_state.config_manager.config['logging'].get('log_directory', 'logs')
+
+    # Get log files
+    log_files = glob.glob(f"{log_dir}/*.log")
+
+    if not log_files:
+        st.warning(f"No log files found in {log_dir}/")
+        return
+
+    # Sort by modification time (newest first)
+    log_files.sort(key=os.path.getmtime, reverse=True)
+
+    # Log file selector
+    selected_log = st.selectbox(
+        "Select Log File",
+        options=[os.path.basename(f) for f in log_files],
+        index=0
+    )
+
+    if selected_log:
+        log_path = os.path.join(log_dir, selected_log)
+
+        # Display options
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            st.markdown(f"### 📝 {selected_log}")
+
+        with col2:
+            # File info
+            file_size = os.path.getsize(log_path) / 1024  # KB
+            st.caption(f"Size: {file_size:.1f} KB")
+            st.caption(f"Modified: {datetime.fromtimestamp(os.path.getmtime(log_path)).strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # Read log file
+        try:
+            with open(log_path, 'r', encoding='utf-8') as f:
+                log_content = f.read()
+
+            # Display options
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                max_lines = st.number_input("Max Lines to Display", min_value=10, max_value=10000, value=500, step=10)
+
+            with col2:
+                filter_level = st.selectbox("Filter by Level", ["All", "ERROR", "WARNING", "INFO", "SUCCESS", "DEBUG"])
+
+            with col3:
+                search_text = st.text_input("Search in Logs", "")
+
+            # Process log content
+            lines = log_content.split('\n')
+
+            # Apply filter
+            if filter_level != "All":
+                lines = [line for line in lines if f"[{filter_level}]" in line]
+
+            # Apply search
+            if search_text:
+                lines = [line for line in lines if search_text.lower() in line.lower()]
+
+            # Limit lines
+            display_lines = lines[-max_lines:] if len(lines) > max_lines else lines
+
+            # Display
+            st.text_area(
+                "Log Content",
+                value='\n'.join(display_lines),
+                height=400,
+                help=f"Showing {len(display_lines)} of {len(lines)} lines"
+            )
+
+            # Statistics
+            st.markdown("---")
+            st.markdown("### 📊 Log Statistics")
+
+            col1, col2, col3, col4, col5 = st.columns(5)
+
+            with col1:
+                error_count = sum(1 for line in lines if '[ERROR]' in line)
+                st.metric("Errors", error_count)
+
+            with col2:
+                warning_count = sum(1 for line in lines if '[WARNING]' in line)
+                st.metric("Warnings", warning_count)
+
+            with col3:
+                info_count = sum(1 for line in lines if '[INFO]' in line)
+                st.metric("Info", info_count)
+
+            with col4:
+                success_count = sum(1 for line in lines if '[SUCCESS]' in line or '✓' in line)
+                st.metric("Success", success_count)
+
+            with col5:
+                st.metric("Total Lines", len(lines))
+
+            # Download button
+            st.download_button(
+                label="📥 Download Full Log",
+                data=log_content,
+                file_name=selected_log,
+                mime="text/plain"
+            )
+
+        except Exception as e:
+            st.error(f"Error reading log file: {e}")
+
+    # Error Files Section
+    st.markdown("---")
+    st.markdown("### ⚠️ Error Files")
+
+    if get_etl_status():
+        etl_config = st.session_state.config_manager.get_etl_config()
+        final_output_path = etl_config['paths']['final_output']
+        output_files = etl_config['output_files']
+
+        error_files = {}
+        for key in ['error_gl', 'error_product']:
+            if key in output_files:
+                file_path = os.path.join(final_output_path, output_files[key])
+                if os.path.exists(file_path):
+                    error_files[key] = file_path
+
+        if error_files:
+            for error_type, error_path in error_files.items():
+                with st.expander(f"📄 {error_type.replace('_', ' ').title()}", expanded=False):
+                    try:
+                        df_error = pd.read_csv(error_path)
+
+                        if len(df_error) > 0:
+                            st.warning(f"Found {len(df_error)} error records")
+                            st.dataframe(df_error.head(100), use_container_width=True)
+
+                            # Download button
+                            st.download_button(
+                                label=f"📥 Download {error_type}",
+                                data=df_error.to_csv(index=False),
+                                file_name=os.path.basename(error_path),
+                                mime="text/csv"
+                            )
+                        else:
+                            st.success("No errors found")
+
+                    except Exception as e:
+                        st.error(f"Error reading {error_type}: {e}")
+        else:
+            st.info("No error files found. Run ETL processing first.")
+    else:
+        st.info("Complete ETL processing to view error files")
 
 if __name__ == "__main__":
     main()
