@@ -1,0 +1,3 @@
+# This file ensures the data/ directory is tracked by git
+# The actual data files (users.json, otps.json, email_logs.json) are gitignored
+# Use the .example files as templates

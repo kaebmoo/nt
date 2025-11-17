@@ -1,0 +1,62 @@
+# Environment variables (contains sensitive data)
+.env
+
+# Data files (contains real user data)
+data/users.json
+data/otps.json
+data/email_logs.json
+
+# Configuration (may contain sensitive paths)
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+users_export.csv
+users_import.csv
+
+# Streamlit
+.streamlit/secrets.toml
