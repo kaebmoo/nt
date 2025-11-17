@@ -176,46 +176,59 @@ def get_reconciliation_results(config_manager) -> dict:
 
             # Parse ตามรูปแบบของ reconciliation log
             lines = content.split('\n')
-            for i, line in enumerate(lines):
-                # หา FI Total
+
+            in_monthly_section = False
+            in_ytd_section = False
+
+            for line in lines:
+                # Detect sections
+                if 'RECONCILE รายเดือน' in line or 'MONTHLY' in line:
+                    in_monthly_section = True
+                    in_ytd_section = False
+                elif 'RECONCILE ยอดสะสม' in line or 'YTD' in line:
+                    in_monthly_section = False
+                    in_ytd_section = True
+                elif 'OVERALL STATUS' in line:
+                    in_monthly_section = False
+                    in_ytd_section = False
+
+                # Parse values based on section
+                if 'Status:' in line:
+                    if 'PASSED' in line:
+                        if in_monthly_section:
+                            result['monthly_passed'] = True
+                        elif in_ytd_section:
+                            result['ytd_passed'] = True
+
                 if 'FI Total:' in line:
                     try:
-                        # Format: "  FI Total: 4,037,549,271.88"
                         value = line.split('FI Total:')[-1].strip().replace(',', '')
-                        if 'Reconcile ยอดรายเดือน' in '\n'.join(lines[max(0,i-5):i]):
+                        if in_monthly_section:
                             result['fi_total_monthly'] = float(value)
-                        elif 'Reconcile ยอดสะสม' in '\n'.join(lines[max(0,i-5):i]):
+                        elif in_ytd_section:
                             result['fi_total_ytd'] = float(value)
                     except:
                         pass
 
-                # หา TRN Total
                 if 'TRN Total:' in line:
                     try:
                         value = line.split('TRN Total:')[-1].strip().replace(',', '')
-                        if 'Reconcile ยอดรายเดือน' in '\n'.join(lines[max(0,i-5):i]):
+                        if in_monthly_section:
                             result['trn_total_monthly'] = float(value)
-                        elif 'Reconcile ยอดสะสม' in '\n'.join(lines[max(0,i-5):i]):
+                        elif in_ytd_section:
                             result['trn_total_ytd'] = float(value)
                     except:
                         pass
 
-                # หา Diff
                 if 'Diff:' in line:
                     try:
                         value = line.split('Diff:')[-1].strip().replace(',', '')
-                        if 'Reconcile ยอดรายเดือน' in '\n'.join(lines[max(0,i-5):i]):
+                        if in_monthly_section:
                             result['monthly_diff'] = float(value)
-                        elif 'Reconcile ยอดสะสม' in '\n'.join(lines[max(0,i-5):i]):
+                        elif in_ytd_section:
                             result['ytd_diff'] = float(value)
                     except:
                         pass
-
-            # Check PASSED/FAILED
-            if 'Reconcile รายเดือน: PASSED' in content:
-                result['monthly_passed'] = True
-            if 'Reconcile YTD: PASSED' in content:
-                result['ytd_passed'] = True
 
         return result
     except Exception as e:
