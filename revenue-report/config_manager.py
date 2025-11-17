@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import copy
 import calendar
+from logger_utils import ETLLogger
 
 
 class ConfigManager:
@@ -27,7 +28,7 @@ class ConfigManager:
     def __init__(self, config_path: str = "config.json"):
         """
         Initialize ConfigManager
-        
+
         Args:
             config_path: path ของไฟล์ configuration (default: config.json)
         """
@@ -35,7 +36,10 @@ class ConfigManager:
         self.config = None
         self.paths = None
         self.os_platform = platform.system().lower()
-        
+
+        # Setup logger
+        self.logger = ETLLogger.get_logger('config_manager')
+
         # โหลด configuration
         self.load_config()
         
@@ -59,8 +63,8 @@ class ConfigManager:
             
             # Validate configuration
             self._validate_config()
-            
-            print(f"✓ โหลด Configuration จาก {self.config_path} สำเร็จ")
+
+            self.logger.success(f"โหลด Configuration จาก {self.config_path} สำเร็จ")
             return self.config
             
         except FileNotFoundError:
@@ -139,8 +143,8 @@ class ConfigManager:
         year = self.config['processing_year']
         if not year.isdigit() or len(year) != 4:
             raise ValueError(f"processing_year ต้องเป็นตัวเลข 4 หลัก: {year}")
-        
-        print(f"✓ Configuration validation ผ่าน")
+
+        self.logger.success("Configuration validation ผ่าน")
 
     def _get_last_day_of_month(self, year: int, month: int) -> int:
         """
@@ -290,7 +294,7 @@ class ConfigManager:
         """
         if section in self.config and isinstance(self.config[section], dict):
             self.config[section][key] = value
-            print(f"✓ อัพเดท config: {section}.{key} = {value}")
+            self.logger.success(f"อัพเดท config: {section}.{key} = {value}")
         else:
             raise ValueError(f"ไม่พบ section '{section}' ใน configuration")
     
@@ -306,13 +310,13 @@ class ConfigManager:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_path = f"{self.config_path}.backup_{timestamp}"
             os.rename(self.config_path, backup_path)
-            print(f"✓ สร้าง backup: {backup_path}")
-        
+            self.logger.success(f"สร้าง backup: {backup_path}")
+
         # บันทึกไฟล์ใหม่
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(self.config, f, indent=2, ensure_ascii=False)
-        
-        print(f"✓ บันทึก configuration: {self.config_path}")
+
+        self.logger.success(f"บันทึก configuration: {self.config_path}")
     
     def create_directories(self) -> None:
         """
@@ -332,7 +336,7 @@ class ConfigManager:
         
         for directory in directories:
             Path(directory).mkdir(parents=True, exist_ok=True)
-            print(f"✓ สร้าง/ตรวจสอบ directory: {directory}")
+            self.logger.success(f"สร้าง/ตรวจสอบ directory: {directory}")
     
     def print_config_summary(self) -> None:
         """
@@ -396,7 +400,7 @@ class ConfigManager:
         if update_etl:
             self.config['processing_months']['etl_end_month'] = month
 
-        print(f"✓ อัพเดทเดือนสำหรับประมวลผล: {month:02d}")
+        self.logger.success(f"อัพเดทเดือนสำหรับประมวลผล: {month:02d}")
 
     def get_processing_months(self) -> Dict[str, int]:
         """

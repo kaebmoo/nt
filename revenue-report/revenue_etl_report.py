@@ -7,6 +7,7 @@ from datetime import datetime
 import platform
 from typing import Dict, Any
 from revenue_reconciliation import RevenueReconciliation, ReconciliationError
+from logger_utils import ETLLogger
 
 
 # ============================================================================
@@ -272,6 +273,9 @@ class RevenueETL:
             self.config = config or Config
             self.paths = self.config.get_paths()
 
+        # Setup logger
+        self.logger = ETLLogger.get_logger('etl_module')
+
         self.setup_directories()
 
         # ตัวแปรสำหรับเก็บ YTD data ไว้ใช้ใน report
@@ -281,30 +285,30 @@ class RevenueETL:
         """สร้าง directory ถ้ายังไม่มี"""
         Path(self.paths["output"]).mkdir(parents=True, exist_ok=True)
         Path(self.paths["final_output"]).mkdir(parents=True, exist_ok=True)
-        
-        print("=" * 80)
-        print("PATH CONFIGURATION")
-        print("=" * 80)
+
+        self.logger.info("=" * 80)
+        self.logger.info("PATH CONFIGURATION")
+        self.logger.info("=" * 80)
         for key, path in self.paths.items():
-            print(f"{key:15s}: {path}")
-        print("=" * 80)
+            self.logger.info(f"{key:15s}: {path}")
+        self.logger.info("=" * 80)
         
     def log(self, message, grand_total=None):
         """แสดงข้อความ log พร้อม timestamp"""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         # [FIX] ตรวจสอบประเภทของ grand_total
         # ถ้าเป็น string, ถือว่าเป็น level (เช่น "ERROR", "SUCCESS")
         # ถ้าเป็นตัวเลข (int/float), ถือว่าเป็นยอดรวม
-        
+
         if isinstance(grand_total, str):
-            print(f"[{timestamp}] [{grand_total}] {message}")
+            # grand_total เป็น level
+            self.logger.log(message, grand_total)
         elif isinstance(grand_total, (int, float)):
-            print(f"[{timestamp}] {message}")
-            print(f"[{timestamp}] Grand Total = {grand_total:,.2f}")
+            # grand_total เป็นตัวเลข
+            self.logger.info(message)
+            self.logger.info(f"Grand Total = {grand_total:,.2f}")
         else:
             # กรณี grand_total=None หรืออื่นๆ
-            print(f"[{timestamp}] {message}")
+            self.logger.info(message)
 
     def step0_reconcile_revenue(self):
         """ตรวจสอบความถูกต้องของข้อมูล (Reconciliation)"""
@@ -1546,11 +1550,11 @@ class RevenueETL:
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
             from openpyxl.utils import get_column_letter
         except ImportError:
-            print("="*80)
-            print("❌ ไม่พบโมดูล openpyxl")
-            print("  โปรดติดตั้งด้วยคำสั่ง: pip install openpyxl")
-            print("  ไม่สามารถสร้างหรือจัดรูปแบบไฟล์ Excel ได้")
-            print("="*80)
+            self.logger.error("="*80)
+            self.logger.error("❌ ไม่พบโมดูล openpyxl")
+            self.logger.error("  โปรดติดตั้งด้วยคำสั่ง: pip install openpyxl")
+            self.logger.error("  ไม่สามารถสร้างหรือจัดรูปแบบไฟล์ Excel ได้")
+            self.logger.error("="*80)
             raise ImportError("openpyxl is required for creating Excel reports")
 
         # Detect historical anomalies
@@ -1562,9 +1566,9 @@ class RevenueETL:
         # ดึงข้อมูล YTD ที่โหลดไว้ใน step 4
         df_adj_ytd = self.df_adj_ytd
 
-        print("\n" + "=" * 80)
-        print("สร้าง Excel Report...")
-        print("=" * 80)
+        self.logger.info("\n" + "=" * 80)
+        self.logger.info("สร้าง Excel Report...")
+        self.logger.info("=" * 80)
 
         # กำหนดชื่อไฟล์ Excel
         if excel_output_file is None:
@@ -1572,7 +1576,7 @@ class RevenueETL:
                 self.paths["final_output"],
                 f"revenue_report_{self.config.YEAR}.xlsx"
             )
-        print(f"ไฟล์ Excel ที่จะสร้าง: {excel_output_file}")
+        self.logger.info(f"ไฟล์ Excel ที่จะสร้าง: {excel_output_file}")
 
         # Aggregate ข้อมูลตาม hierarchy และเดือน
         df = df_result.copy()
@@ -1605,7 +1609,7 @@ class RevenueETL:
             - ใช้ YTD สำหรับคอลัมน์ "ผลรวม" ของกลุ่ม ADJ
             """
 
-            print(f"  กำลังสร้างรายงาน (sort_ascending={sort_ascending})...")
+            self.logger.info(f"  กำลังสร้างรายงาน (sort_ascending={sort_ascending})...")
 
             # --- 1. สร้าง Anomaly Maps ---
             print("    กำลังสร้าง Anomaly Maps...")
@@ -2096,7 +2100,7 @@ class RevenueETL:
         # ========================================================================
         # สร้างรายงาน 2 แบบ
         # ========================================================================
-        print("กำลังสร้างรายงาน...")
+        self.logger.info("กำลังสร้างรายงาน...")
         report_asc = create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=True)
         report_desc = create_report(agg_data, anomaly_results, df_adj_ytd, sort_ascending=False)
 
