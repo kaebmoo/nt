@@ -39,8 +39,8 @@
     "master_files": {
       "expense": "MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv",
       "revenue": "MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv",
-      "other_revenue": "MASTER_OTHER_REVENUE_NET.csv",
-      "revenue_expense_net": "master_revenue_expense_net.csv"
+      "other_revenue": "source/MASTER_OTHER_REVENUE_NET.csv",
+      "revenue_expense_net": "source/master_revenue_expense_net.csv"
     },
     
     "output_files": {
