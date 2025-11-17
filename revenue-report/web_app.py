@@ -1134,6 +1134,11 @@ def show_logs():
     """แสดงหน้า Logs"""
     st.header("📋 System Logs")
 
+    # Check if config_manager is available
+    if not st.session_state.config_manager:
+        st.info("Please load configuration first")
+        return
+
     # Log directory
     log_dir = st.session_state.config_manager.config['logging'].get('log_directory', 'logs')
 
