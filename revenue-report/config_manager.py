@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 import copy
+import calendar
 
 
 class ConfigManager:
@@ -140,29 +141,133 @@ class ConfigManager:
             raise ValueError(f"processing_year ต้องเป็นตัวเลข 4 หลัก: {year}")
         
         print(f"✓ Configuration validation ผ่าน")
-    
+
+    def _get_last_day_of_month(self, year: int, month: int) -> int:
+        """
+        คำนวณวันสุดท้ายของเดือน
+
+        Args:
+            year: ปี (int)
+            month: เดือน (int 1-12)
+
+        Returns:
+            int: วันสุดท้ายของเดือน (28-31)
+        """
+        return calendar.monthrange(year, month)[1]
+
+    def _expand_filename_template(self, template: str, year: str, month: int) -> str:
+        """
+        แทนที่ placeholders ในชื่อไฟล์ด้วยค่าจริง
+
+        Placeholders:
+            {YYYY} - ปี 4 หลัก (เช่น 2025)
+            {MM} - เดือน 2 หลัก (เช่น 01, 10)
+            {YYYYMM} - ปีเดือน (เช่น 202501)
+            {YYYYMMDD} - ปีเดือนวัน (วันสุดท้ายของเดือน) (เช่น 20250131)
+            {FI_MONTH} - เดือน 2 หลัก (สำหรับ reconciliation)
+
+        Args:
+            template: ชื่อไฟล์ที่มี placeholders
+            year: ปี (string)
+            month: เดือน (int 1-12)
+
+        Returns:
+            str: ชื่อไฟล์ที่แทนที่แล้ว
+        """
+        if not isinstance(template, str):
+            return template
+
+        # แปลง year เป็น int
+        year_int = int(year)
+
+        # คำนวณวันสุดท้ายของเดือน
+        last_day = self._get_last_day_of_month(year_int, month)
+
+        # แทนที่ placeholders
+        result = template
+        result = result.replace("{YYYY}", year)
+        result = result.replace("{MM}", f"{month:02d}")
+        result = result.replace("{YYYYMM}", f"{year}{month:02d}")
+        result = result.replace("{YYYYMMDD}", f"{year}{month:02d}{last_day:02d}")
+        result = result.replace("{FI_MONTH}", f"{month:02d}")
+
+        return result
+
+    def _expand_dict_templates(self, data: Any, year: str, month: int) -> Any:
+        """
+        แทนที่ templates ใน dict/list/str แบบ recursive
+
+        Args:
+            data: ข้อมูลที่ต้องการแทนที่ (dict, list, str, or other)
+            year: ปี
+            month: เดือน
+
+        Returns:
+            ข้อมูลที่แทนที่แล้ว
+        """
+        if isinstance(data, dict):
+            return {k: self._expand_dict_templates(v, year, month) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self._expand_dict_templates(item, year, month) for item in data]
+        elif isinstance(data, str):
+            return self._expand_filename_template(data, year, month)
+        else:
+            return data
+
     def get_fi_config(self) -> Dict[str, Any]:
         """
         ดึง configuration สำหรับ FI Module
-        
+
         Returns:
-            dict: FI module configuration พร้อม paths
+            dict: FI module configuration พร้อม paths (ชื่อไฟล์ expand แล้ว)
         """
         fi_config = copy.deepcopy(self.config['fi_module'])
         fi_config['paths'] = self.paths['fi']
         fi_config['year'] = self.config['processing_year']
+
+        # Expand templates สำหรับ FI module
+        year = self.config['processing_year']
+        fi_month = self.config['processing_months']['fi_current_month']
+
+        # Expand input_files และ output_files
+        fi_config['input_files'] = self._expand_dict_templates(
+            fi_config['input_files'], year, fi_month
+        )
+        fi_config['output_files'] = self._expand_dict_templates(
+            fi_config['output_files'], year, fi_month
+        )
+
+        # เพิ่ม month เข้าไปใน config สำหรับใช้งาน
+        fi_config['current_month'] = fi_month
+
         return fi_config
     
     def get_etl_config(self) -> Dict[str, Any]:
         """
         ดึง configuration สำหรับ ETL Module
-        
+
         Returns:
-            dict: ETL module configuration พร้อม paths
+            dict: ETL module configuration พร้อม paths (ชื่อไฟล์ expand แล้ว)
         """
         etl_config = copy.deepcopy(self.config['etl_module'])
         etl_config['paths'] = self.paths['etl']
         etl_config['year'] = self.config['processing_year']
+
+        # Expand templates สำหรับ ETL module
+        year = self.config['processing_year']
+        etl_end_month = self.config['processing_months']['etl_end_month']
+        fi_month = self.config['processing_months']['fi_current_month']
+
+        # Expand reconciliation.fi_month
+        if 'reconciliation' in etl_config:
+            etl_config['reconciliation'] = self._expand_dict_templates(
+                etl_config['reconciliation'], year, fi_month
+            )
+
+        # เพิ่ม month เข้าไปใน config สำหรับใช้งาน
+        etl_config['end_month'] = etl_end_month
+        etl_config['fi_month'] = fi_month
+
         return etl_config
     
     def get_reconciliation_config(self) -> Dict[str, Any]:
@@ -269,11 +374,38 @@ class ConfigManager:
     def get_year(self) -> str:
         """
         ดึงปีที่ประมวลผล
-        
+
         Returns:
             str: ปีที่ประมวลผล
         """
         return self.config['processing_year']
+
+    def set_processing_month(self, month: int, update_etl: bool = True) -> None:
+        """
+        กำหนดเดือนที่ต้องการประมวลผล (runtime override)
+
+        Args:
+            month: เดือนที่ต้องการประมวลผล (1-12)
+            update_etl: อัพเดท etl_end_month ด้วยหรือไม่ (default: True)
+        """
+        if not 1 <= month <= 12:
+            raise ValueError(f"เดือนต้องอยู่ระหว่าง 1-12: {month}")
+
+        self.config['processing_months']['fi_current_month'] = month
+
+        if update_etl:
+            self.config['processing_months']['etl_end_month'] = month
+
+        print(f"✓ อัพเดทเดือนสำหรับประมวลผล: {month:02d}")
+
+    def get_processing_months(self) -> Dict[str, int]:
+        """
+        ดึงข้อมูลเดือนที่กำลังประมวลผล
+
+        Returns:
+            dict: {'fi_current_month': int, 'etl_end_month': int}
+        """
+        return self.config['processing_months']
 
 
 # สร้าง instance สำหรับใช้งานร่วมกัน

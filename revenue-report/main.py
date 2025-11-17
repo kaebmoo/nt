@@ -252,13 +252,32 @@ def main():
         type=str,
         help='กำหนดปีที่ต้องการประมวลผล (override config - ยังไม่รองรับเต็มรูปแบบ)'
     )
-    
+
+    parser.add_argument(
+        '--month',
+        type=int,
+        help='กำหนดเดือนที่ต้องการประมวลผล (1-12) - จะอัพเดททั้ง FI และ ETL'
+    )
+
     args = parser.parse_args()
     
     try:
         # สร้าง system instance
         system = RevenueETLSystem(args.config)
-        
+
+        # Override month ถ้ามีการระบุ --month
+        if args.month:
+            if not 1 <= args.month <= 12:
+                system.log(f"❌ เดือนต้องอยู่ระหว่าง 1-12: {args.month}", "ERROR")
+                sys.exit(1)
+
+            system.log(f"🗓️  Override เดือนเป็น: {args.month:02d}", "INFO")
+            system.config_manager.set_processing_month(args.month, update_etl=True)
+
+            # Reload config หลัง override
+            system.fi_config = system.config_manager.get_fi_config()
+            system.etl_config = system.config_manager.get_etl_config()
+
         if args.year:
             system.log(f"การ Override ปี ({args.year}) ยังไม่รองรับเต็มรูปแบบ", "WARNING")
         
