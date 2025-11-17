@@ -1291,7 +1291,7 @@ def show_configuration():
         st.markdown("### Master Files")
         etl_master_product = st.text_input("Product Master", value=config['etl_module']['master_files']['product'], key="etl_master_product")
         etl_master_gl = st.text_input("GL Code Master", value=config['etl_module']['master_files']['gl_code'], key="etl_master_gl")
-        etl_master_mapping_cc = st.text_input("Mapping CC", value=config['etl_module']['master_files']['mapping_cc'], key="etl_master_mapping_cc")
+        etl_master_mapping_cc = st.text_input("Mapping Cost Center", value=config['etl_module']['master_files']['mapping_cc'], key="etl_master_mapping_cc")
         etl_master_mapping_product = st.text_input("Mapping Product", value=config['etl_module']['master_files']['mapping_product'], key="etl_master_mapping_product")
 
         st.markdown("### Input Patterns")
@@ -1306,7 +1306,7 @@ def show_configuration():
     with col2:
         st.markdown("### Output Files")
         etl_output_concat = st.text_input("Concat File", value=config['etl_module']['output_files']['concat'], key="etl_output_concat")
-        etl_output_mapped_cc = st.text_input("Mapped CC", value=config['etl_module']['output_files']['mapped_cc'], key="etl_output_mapped_cc")
+        etl_output_mapped_cc = st.text_input("Mapped Cost Center", value=config['etl_module']['output_files']['mapped_cc'], key="etl_output_mapped_cc")
         etl_output_mapped_product = st.text_input("Mapped Product", value=config['etl_module']['output_files']['mapped_product'], key="etl_output_mapped_product")
         etl_output_final = st.text_input("Final Report", value=config['etl_module']['output_files']['final_report'], key="etl_output_final")
         etl_output_error_gl = st.text_input("Error GL", value=config['etl_module']['output_files']['error_gl'], key="etl_output_error_gl")
