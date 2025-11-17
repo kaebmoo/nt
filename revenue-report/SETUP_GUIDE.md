@@ -1,181 +1,1096 @@
-# 📦 Revenue ETL System v2.0 - Setup Guide
+# 📦 Revenue ETL System v2.1 - Setup Guide
 
-## รายการไฟล์ทั้งหมด (File List)
-
-### ✅ ไฟล์หลักที่จำเป็น (Core Files)
-1. **config.json** - ไฟล์ configuration หลัก
-2. **main.py** - โปรแกรมหลักสำหรับรันระบบ
-3. **config_manager.py** - Module จัดการ configuration
-4. **fi_revenue_expense_module.py** - Module ประมวลผลงบการเงิน (FI)
-5. **revenue_etl_report.py** - Module ETL Pipeline
-6. **revenue_reconciliation.py** - Module ตรวจสอบความถูกต้อง
-
-### 📚 ไฟล์เอกสารและเครื่องมือ (Documentation & Tools)
-7. **requirements.txt** - Python dependencies
-8. **README.md** - คู่มือการใช้งานระบบ
-9. **web_app.py** - Web Application (Streamlit)
-10. **run.sh** - Shell script สำหรับรันระบบ
+## คู่มือการติดตั้งและการตั้งค่าอย่างละเอียด
 
 ---
 
-## 🚀 ขั้นตอนการติดตั้ง (Quick Setup)
+## 📑 สารบัญ
 
-### Step 1: แตกไฟล์ (Extract Files)
+1. [การติดตั้งระบบ](#-การติดตั้งระบบ)
+2. [โครงสร้าง Folder](#-โครงสร้าง-folder)
+3. [Configuration Reference](#-configuration-reference)
+4. [การใช้งาน Web Application](#-การใช้งาน-web-application)
+5. [Troubleshooting](#-troubleshooting)
+6. [Best Practices](#-best-practices)
+
+---
+
+## 🚀 การติดตั้งระบบ
+
+### ข้อกำหนดเบื้องต้น
+
+#### Software Requirements
+- **Python:** 3.8 หรือสูงกว่า (แนะนำ 3.9+)
+- **pip:** Version ล่าสุด
+- **Git:** (ถ้าจะ clone จาก repository)
+
+#### Hardware Requirements
+- **CPU:** Intel Core i5 หรือเทียบเท่า (2 cores ขึ้นไป)
+- **RAM:** อย่างน้อย 4 GB (แนะนำ 8 GB)
+- **Disk Space:** อย่างน้อย 5 GB
+  - 2 GB สำหรับข้อมูล
+  - 1 GB สำหรับ logs
+  - 2 GB สำหรับ output files
+
+#### Operating System
+- Windows 10/11 (64-bit)
+- macOS 10.14 (Mojave) หรือสูงกว่า
+- Linux (Ubuntu 18.04+, CentOS 7+, หรือเทียบเท่า)
+
+---
+
+### ขั้นตอนการติดตั้ง
+
+#### Step 1: ดาวน์โหลดและแตกไฟล์
+
 ```bash
-unzip revenue_etl_system_v2.zip
-cd revenue_etl_system
+# Option A: ใช้ Git Clone
+git clone https://github.com/your-org/revenue-report.git
+cd revenue-report
+
+# Option B: แตกไฟล์ ZIP
+unzip revenue_etl_system_v2.1.zip
+cd revenue-report
 ```
 
-### Step 2: ติดตั้ง Python Dependencies
-```bash
+#### Step 2: ติดตั้ง Python Dependencies
+
+**สำหรับ Windows:**
+```powershell
+# ตรวจสอบ Python version
+python --version
+
+# อัพเกรด pip
+python -m pip install --upgrade pip
+
+# ติดตั้ง dependencies
 pip install -r requirements.txt
 ```
 
-### Step 3: ปรับแต่ง Configuration
-แก้ไขไฟล์ `config.json` ตามความต้องการ:
+**สำหรับ macOS/Linux:**
+```bash
+# ตรวจสอบ Python version
+python3 --version
+
+# อัพเกรด pip
+python3 -m pip install --upgrade pip
+
+# ติดตั้ง dependencies
+pip3 install -r requirements.txt
+```
+
+#### Step 3: ตรวจสอบการติดตั้ง
+
+```bash
+# ทดสอบ import modules
+python -c "import pandas; import openpyxl; import streamlit; print('✓ All packages installed')"
+```
+
+---
+
+## 📁 โครงสร้าง Folder
+
+### โครงสร้างข้อมูล (Data Directory Structure)
+
+```
+{base_path}/
+│
+├── {year}/                          # ปีที่ประมวลผล เช่น 2025/
+│   │
+│   ├── fi/                          # FI Module Data
+│   │   ├── pld_nt_20251031.txt     # Input file (TIS-620 encoding)
+│   │   └── output/                  # Output directory (auto-created)
+│   │       ├── pl_combined_output_202510.xlsx
+│   │       ├── pl_expense_nt_output_202510.csv
+│   │       └── pl_revenue_nt_output_202510.csv
+│   │
+│   └── revenue/                     # ETL Module Data
+│       ├── TRN_REVENUE_NT1_01.csv  # Transaction files
+│       ├── TRN_REVENUE_NT1_02.csv
+│       ├── ...
+│       └── output/                  # Output directory (auto-created)
+│           ├── trn_revenue_nt_2025.csv
+│           ├── revenue_new_cc_2025.csv
+│           ├── revenue_mapped_product_2025.csv
+│           └── reconcile_logs/      # Reconciliation logs
+│               ├── reconcile_summary_*.txt
+│               ├── reconcile_monthly_errors_*.csv
+│               └── reconcile_ytd_errors_*.csv
+│
+└── all/                             # Final outputs
+    └── revenue/
+        └── 2025/
+            ├── REVENUE_NT_REPORT_2025.xlsx
+            ├── REVENUE_NT_REPORT_2025.csv
+            ├── error_gl_REVENUE_NT_REPORT_2025.csv
+            └── error_product_REVENUE_NT_REPORT_2025.csv
+```
+
+### โครงสร้าง Master Files
+
+```
+{master_path}/
+│
+├── source/                          # Master files สำหรับ FI Module
+│   ├── MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv
+│   ├── MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv
+│   ├── MASTER_OTHER_REVENUE_NET.csv
+│   └── master_revenue_expense_net.csv
+│
+├── MASTER_PRODUCT_NT_2025.csv       # Master product
+├── MAPPING_CC.csv                   # Cost center mapping
+│
+└── clean/                           # Cleaned master files
+    └── MAP_PRODUCT_NT_NEW_2024.csv  # Product mapping
+```
+
+---
+
+## ⚙️ Configuration Reference
+
+### Overview
+
+ไฟล์ `config.json` เป็น **ศูนย์กลาง** ในการตั้งค่าทั้งระบบ แบ่งเป็น 5 sections หลัก:
 
 ```json
 {
-  "processing_year": "2025",  // <- เปลี่ยนปีที่ต้องการ
-  "paths": {
-    "darwin": {  // macOS
-      "base_path": "/path/to/your/data",  // <- แก้ไข path
-      "master_path": "/path/to/master"     // <- แก้ไข path
+  "environment": { ... },           // 1. Environment settings
+  "paths": { ... },                 // 2. OS-specific paths
+  "processing_year": "2025",        // 3. Processing year
+  "processing_months": { ... },     // 4. Processing months
+  "fi_module": { ... },            // 5. FI Module config
+  "etl_module": { ... },           // 6. ETL Module config
+  "logging": { ... }               // 7. Logging config
+}
+```
+
+---
+
+### 1. Environment Section
+
+```json
+"environment": {
+  "name": "production",
+  "description": "Revenue ETL Configuration"
+}
+```
+
+**คำอธิบาย:**
+- `name` - ชื่อ environment (เช่น `production`, `development`, `testing`)
+- `description` - คำอธิบาย configuration นี้
+
+**การใช้งาน:**
+- ใช้แยก config ระหว่าง production และ development
+- สามารถมีหลายไฟล์ config สำหรับแต่ละ environment
+
+---
+
+### 2. Paths Section
+
+```json
+"paths": {
+  "darwin": {
+    "base_path": "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource",
+    "master_path": "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/master"
+  },
+  "linux": {
+    "base_path": "/home/seal/nt/data",
+    "master_path": "/home/seal/nt/master"
+  },
+  "windows": {
+    "base_path": "C:\\Users\\00320845\\OneDrive\\share\\Datasource",
+    "master_path": "C:\\Users\\00320845\\OneDrive\\share\\master"
+  }
+}
+```
+
+**คำอธิบาย:**
+
+**`darwin` (macOS):**
+- `base_path` - path หลักสำหรับข้อมูล (input และ output)
+- `master_path` - path สำหรับ master files
+
+**`linux`:**
+- ตั้งค่าสำหรับ Linux OS
+- Format เดียวกับ darwin
+
+**`windows`:**
+- ตั้งค่าสำหรับ Windows OS
+- ใช้ `\\` (double backslash) หรือ `/` (forward slash)
+
+**Path Logic:**
+```
+base_path/{year}/fi/          → FI input files
+base_path/{year}/fi/output/   → FI output files
+base_path/{year}/revenue/     → ETL input files
+base_path/{year}/revenue/output/ → ETL intermediate files
+base_path/all/revenue/{year}/ → ETL final outputs
+master_path/source/           → FI master files
+master_path/                  → ETL master files
+```
+
+**การเลือก OS อัตโนมัติ:**
+- ระบบจะเลือก paths ตาม OS ที่รันโดยอัตโนมัติ
+- macOS → `darwin`
+- Linux → `linux`
+- Windows → `windows`
+
+---
+
+### 3. Processing Year
+
+```json
+"processing_year": "2025"
+```
+
+**คำอธิบาย:**
+- ปีที่ต้องการประมวลผล (รูปแบบ: "YYYY")
+- ใช้ในการสร้าง paths และชื่อไฟล์
+
+**ตัวอย่างการใช้งาน:**
+- Year = "2025" → paths: `/data/2025/fi/`
+- Year = "2024" → paths: `/data/2024/fi/`
+
+**การเปลี่ยนปี:**
+1. แก้ไข `"processing_year": "2026"`
+2. อัพเดทชื่อไฟล์ master ให้ตรงกับปีใหม่
+3. สร้าง folder structure สำหรับปีใหม่
+
+---
+
+### 4. Processing Months
+
+```json
+"processing_months": {
+  "fi_current_month": 10,
+  "etl_end_month": 10
+}
+```
+
+**คำอธิบาย:**
+
+**`fi_current_month`** (1-12):
+- เดือนล่าสุดที่มีข้อมูล FI
+- ใช้ในการเลือก input file และสร้าง output filename
+- ใช้ใน reconciliation เพื่อเทียบกับ TRN
+
+**`etl_end_month`** (1-12):
+- เดือนสิ้นสุดสำหรับ ETL processing
+- ควรเท่ากับ `fi_current_month` เสมอ (เพื่อให้ reconciliation ถูกต้อง)
+
+**⚠️ สำคัญมาก:**
+```
+fi_current_month = etl_end_month (ต้องเท่ากัน!)
+```
+
+**เหตุผล:**
+- Reconciliation เปรียบเทียบ FI กับ TRN ของเดือนเดียวกัน
+- ถ้าไม่เท่ากัน → reconciliation จะ FAILED
+
+**Web App จะเตือนอัตโนมัติ:**
+- แสดง error banner เมื่อเดือนไม่ตรงกัน
+- มีปุ่ม "Sync" เพื่อแก้ไขทันที
+
+---
+
+### 5. FI Module Configuration
+
+#### 5.1 Basic Settings
+
+```json
+"fi_module": {
+  "description": "FI Revenue Expense Processing Configuration",
+  "input_subpath": "fi",
+  "output_subpath": "fi/output",
+  "master_subpath": "source"
+}
+```
+
+**คำอธิบาย:**
+- `input_subpath` - subfolder สำหรับ input files ภายใต้ `{base_path}/{year}/`
+- `output_subpath` - subfolder สำหรับ output files
+- `master_subpath` - subfolder ใน master_path ที่เก็บ master files
+
+**ผลลัพธ์:**
+```
+Input:  {base_path}/2025/fi/pld_nt_20251031.txt
+Output: {base_path}/2025/fi/output/pl_combined_output_202510.xlsx
+Master: {master_path}/source/MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv
+```
+
+#### 5.2 Input Files
+
+```json
+"input_files": [
+  "pld_nt_{YYYYMMDD}.txt"
+]
+```
+
+**Template Variables:**
+- `{YYYY}` - ปี 4 หลัก (เช่น 2025)
+- `{MM}` - เดือน 2 หลัก (เช่น 01, 10)
+- `{YYYYMM}` - ปีเดือน (เช่น 202510)
+- `{YYYYMMDD}` - ปีเดือนวัน (วันสุดท้ายของเดือน, เช่น 20251031)
+
+**ตัวอย่าง:**
+```
+Template: pld_nt_{YYYYMMDD}.txt
+Year: 2025, Month: 10
+→ Result: pld_nt_20251031.txt
+```
+
+#### 5.3 Master Files
+
+```json
+"master_files": {
+  "expense": "MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv",
+  "revenue": "MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv",
+  "other_revenue": "source/MASTER_OTHER_REVENUE_NET.csv",
+  "revenue_expense_net": "source/master_revenue_expense_net.csv"
+}
+```
+
+**Path Logic:**
+
+**ไฟล์ที่ไม่มี "/" → อยู่ใน `master_path/source/`:**
+```
+"expense": "MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv"
+→ Full path: {master_path}/source/MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv
+```
+
+**ไฟล์ที่มี "/" → relative จาก `master_path/`:**
+```
+"other_revenue": "source/MASTER_OTHER_REVENUE_NET.csv"
+→ Full path: {master_path}/source/MASTER_OTHER_REVENUE_NET.csv
+```
+
+**รายละเอียดแต่ละไฟล์:**
+
+| Key | Description | Format |
+|-----|-------------|--------|
+| `expense` | Master expense GL codes | CSV (UTF-8) |
+| `revenue` | Master revenue GL codes | CSV (UTF-8) |
+| `other_revenue` | Master other revenue mapping | CSV (UTF-8) |
+| `revenue_expense_net` | Master revenue/expense net mapping | CSV (UTF-8) |
+
+#### 5.4 Output Files
+
+```json
+"output_files": {
+  "excel": "pl_combined_output_{YYYYMM}.xlsx",
+  "csv_expense": "pl_expense_nt_output_{YYYYMM}.csv",
+  "csv_revenue": "pl_revenue_nt_output_{YYYYMM}.csv"
+}
+```
+
+**รายละเอียด:**
+- `excel` - รายงาน Excel รวม (3 sheets: expense_nt, revenue_nt, summary_other)
+- `csv_expense` - ข้อมูล Expense (UTF-8)
+- `csv_revenue` - ข้อมูล Revenue (UTF-8) **สำคัญสำหรับ reconciliation**
+
+**ตัวอย่าง:**
+```
+Year: 2025, Month: 10
+→ pl_combined_output_202510.xlsx
+→ pl_expense_nt_output_202510.csv
+→ pl_revenue_nt_output_202510.csv
+```
+
+#### 5.5 Encoding
+
+```json
+"encoding": {
+  "input": "tis-620",
+  "output": "utf-8",
+  "master": "utf-8"
+}
+```
+
+**คำอธิบาย:**
+- `input` - encoding ของไฟล์ input (FI data มักเป็น `tis-620`)
+- `output` - encoding ของไฟล์ output (แนะนำ `utf-8`)
+- `master` - encoding ของ master files (แนะนำ `utf-8`)
+
+**Common Encodings:**
+- `tis-620` - Thai Industrial Standard (ระบบเก่า)
+- `utf-8` - Universal (รองรับทุกภาษา, แนะนำ)
+- `cp874` - Windows Thai
+
+#### 5.6 Processing Rules
+
+```json
+"processing_rules": {
+  "delimiter": "\t",
+  "expense_gl_pattern": "^(51|53|54|59|52)",
+  "revenue_gl_pattern": "^4"
+}
+```
+
+**คำอธิบาย:**
+- `delimiter` - ตัวแบ่งคอลัมน์ในไฟล์ input (`\t` = Tab)
+- `expense_gl_pattern` - Regex pattern สำหรับ GL codes ของ Expense
+- `revenue_gl_pattern` - Regex pattern สำหรับ GL codes ของ Revenue
+
+**Pattern Explanation:**
+```
+"^(51|53|54|59|52)"
+  ^  - เริ่มต้นด้วย
+  51|53|54|59|52 - GL codes ที่ขึ้นต้นด้วยเลขเหล่านี้
+
+"^4"
+  ^  - เริ่มต้นด้วย
+  4  - GL codes ที่ขึ้นต้นด้วย 4
+```
+
+---
+
+### 6. ETL Module Configuration
+
+#### 6.1 Basic Settings
+
+```json
+"etl_module": {
+  "description": "Revenue ETL Pipeline Configuration",
+  "input_subpath": "revenue",
+  "output_subpath": "revenue/output",
+  "final_output_subpath": "all/revenue"
+}
+```
+
+**Path Results:**
+```
+Input:  {base_path}/2025/revenue/TRN_*.csv
+Output: {base_path}/2025/revenue/output/
+Final:  {base_path}/all/revenue/2025/
+```
+
+#### 6.2 Reconciliation Settings
+
+```json
+"reconciliation": {
+  "enabled": true,
+  "fi_month": "{FI_MONTH}",
+  "tolerance": 0.00
+}
+```
+
+**คำอธิบาย:**
+
+**`enabled`** (true/false):
+- `true` - เปิดใช้งาน reconciliation (แนะนำ)
+- `false` - ปิด reconciliation (ใช้เมื่อต้องการ skip การตรวจสอบ)
+
+**`fi_month`** (template):
+- จะถูกแทนที่ด้วย `processing_months.fi_current_month`
+- ใช้ในการหาไฟล์ FI ที่จะเทียบ
+
+**`tolerance`** (float):
+- ความคลาดเคลื่อนที่ยอมรับได้ (หน่วย: THB)
+- `0.00` = ต้องตรงพอดี
+- `0.01` = ยอมรับความแตกต่าง ±0.01 บาท
+
+**ตัวอย่างการใช้งาน:**
+```json
+// สำหรับข้อมูลที่ต้องการความแม่นยำสูง
+"tolerance": 0.00
+
+// สำหรับข้อมูลที่ยอมรับความคลาดเคลื่อนเล็กน้อย
+"tolerance": 0.01
+```
+
+**Reconciliation Process:**
+1. เปรียบเทียบ FI (Monthly) vs TRN (Monthly)
+2. เปรียบเทียบ FI (YTD) vs TRN (YTD)
+3. ตรวจสอบแต่ละ GL_CODE
+4. บันทึก errors ใน `reconcile_logs/`
+
+**Output:**
+- `reconcile_summary_{timestamp}.txt` - สรุปผล
+- `reconcile_monthly_errors_{timestamp}.csv` - รายการที่แตกต่าง (Monthly)
+- `reconcile_ytd_errors_{timestamp}.csv` - รายการที่แตกต่าง (YTD)
+
+#### 6.3 Master Files
+
+```json
+"master_files": {
+  "product": "MASTER_PRODUCT_NT_2025.csv",
+  "gl_code": "source/MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv",
+  "mapping_cc": "MAPPING_CC.csv",
+  "mapping_product": "clean/MAP_PRODUCT_NT_NEW_2024.csv"
+}
+```
+
+**รายละเอียด:**
+
+| File | Path | Description |
+|------|------|-------------|
+| `product` | `{master_path}/MASTER_PRODUCT_NT_2025.csv` | Product master |
+| `gl_code` | `{master_path}/source/MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv` | GL code master |
+| `mapping_cc` | `{master_path}/MAPPING_CC.csv` | Cost center mapping |
+| `mapping_product` | `{master_path}/clean/MAP_PRODUCT_NT_NEW_2024.csv` | Product mapping |
+
+#### 6.4 Input Patterns
+
+```json
+"input_patterns": {
+  "main_files": [
+    "TRN_REVENUE_NT1_*.csv",
+    "TRN_REVENUE_ADJ_GL_NT1_*.csv"
+  ],
+  "adj_monthly": "TRN_REVENUE_ADJ_*.csv",
+  "adj_ytd": "TRN_REVENUE_ADJ_YTD_*.csv"
+}
+```
+
+**คำอธิบาย:**
+- ใช้ wildcard `*` เพื่อค้นหาไฟล์ที่ตรงกับ pattern
+- ระบบจะรวมไฟล์ทั้งหมดที่เจอ
+
+**ตัวอย่าง:**
+```
+Pattern: TRN_REVENUE_NT1_*.csv
+จะหา: TRN_REVENUE_NT1_01.csv
+      TRN_REVENUE_NT1_02.csv
+      ...
+      TRN_REVENUE_NT1_12.csv
+```
+
+#### 6.5 Output Files
+
+```json
+"output_files": {
+  "concat": "trn_revenue_nt_2025.csv",
+  "mapped_cc": "revenue_new_cc_2025.csv",
+  "mapped_product": "revenue_mapped_product_2025_.csv",
+  "final_report": "REVENUE_NT_REPORT_2025.csv",
+  "error_gl": "error_gl_REVENUE_NT_REPORT_2025.csv",
+  "error_product": "error_product_REVENUE_NT_REPORT_2025.csv"
+}
+```
+
+**Pipeline Flow:**
+```
+Input Files
+  ↓ STEP 1: Concatenate
+concat (trn_revenue_nt_2025.csv)
+  ↓ STEP 2: Map Cost Center
+mapped_cc (revenue_new_cc_2025.csv)
+  ↓ STEP 3: Map Product
+mapped_product (revenue_mapped_product_2025.csv)
+  ↓ STEP 4: Merge & Business Rules
+final_report (REVENUE_NT_REPORT_2025.csv)
+  ↓ STEP 5: Anomaly Detection
+REVENUE_NT_REPORT_2025.xlsx (with highlighting)
+```
+
+**Error Files:**
+- `error_gl` - GL codes ที่ไม่พบใน master
+- `error_product` - Product codes ที่ไม่พบใน master
+
+#### 6.6 Business Rules
+
+```json
+"business_rules": {
+  "exclude_business_group": "รายได้อื่น",
+  "non_telecom_service_group": "กลุ่มบริการอื่นไม่ใช่โทรคมนาคม",
+  "new_adj_business_group": "ผลตอบแทนทางการเงินและรายได้อื่น",
+  "financial_income_name": "ผลตอบแทนทางการเงิน",
+  "other_revenue_adj_name": "รายได้อื่น"
+}
+```
+
+**คำอธิบาย:**
+กฎทางธุรกิจสำหรับการจัดกลุ่มรายได้
+
+**`exclude_business_group`:**
+- Business group ที่จะถูกแยกออกจากการประมวลผลหลัก
+
+**`non_telecom_service_group`:**
+- Service group สำหรับบริการที่ไม่ใช่โทรคมนาคม
+
+**`new_adj_business_group`:**
+- Business group ใหม่สำหรับรายได้ปรับปรุง
+
+**`financial_income_name`:**
+- ชื่อสำหรับผลตอบแทนทางการเงิน
+
+**`other_revenue_adj_name`:**
+- ชื่อสำหรับรายได้อื่นๆ ที่ปรับปรุง
+
+#### 6.7 Special Mappings
+
+```json
+"special_mappings": [
+  {
+    "name": "GSaaS to Other Revenue",
+    "condition": {
+      "PRODUCT_KEY": "102010407",
+      "GL_CODE": "46400101"
+    },
+    "mapping": {
+      "PRODUCT_KEY": "292020407",
+      "SUB_PRODUCT_KEY": "1"
+    }
+  }
+]
+```
+
+**คำอธิบาย:**
+กฎพิเศษสำหรับ mapping ข้อมูลที่มีเงื่อนไขเฉพาะ
+
+**โครงสร้าง:**
+- `name` - ชื่อของ mapping rule
+- `condition` - เงื่อนไขที่ต้องตรงทั้งหมด
+- `mapping` - ค่าใหม่ที่จะแทนที่
+
+**ตัวอย่าง:**
+```
+ถ้า PRODUCT_KEY = "102010407" และ GL_CODE = "46400101"
+→ เปลี่ยนเป็น PRODUCT_KEY = "292020407" และ SUB_PRODUCT_KEY = "1"
+```
+
+#### 6.8 Validation
+
+```json
+"validation": {
+  "grand_total_diff_threshold": 0.01,
+  "required_columns": [
+    "YEAR", "MONTH", "CUSTOMER_GROUP_KEY", "PRODUCT_KEY",
+    "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER", "REVENUE_VALUE"
+  ]
+}
+```
+
+**คำอธิบาย:**
+
+**`grand_total_diff_threshold`:**
+- ความคลาดเคลื่อนสูงสุดที่ยอมรับได้สำหรับยอดรวมทั้งหมด
+
+**`required_columns`:**
+- คอลัมน์ที่ต้องมีในข้อมูลขั้นสุดท้าย
+- ถ้าขาดคอลัมน์ใดๆ → จะแสดง error
+
+#### 6.9 Anomaly Detection
+
+```json
+"anomaly_detection": {
+  "enabled": true,
+  "iqr_multiplier": 1.5,
+  "min_history": 3,
+  "rolling_window": 6,
+  "enable_historical_highlight": true,
+  "levels": {
+    "product": {
+      "group_by": ["BUSINESS_GROUP", "SERVICE_GROUP", "PRODUCT_KEY", "PRODUCT_NAME"]
+    },
+    "service": {
+      "group_by": ["BUSINESS_GROUP", "SERVICE_GROUP"]
+    },
+    "business": {
+      "group_by": ["BUSINESS_GROUP"]
+    },
+    "grand_total": {
+      "group_by": []
     }
   }
 }
 ```
 
-### Step 4: จัดโครงสร้าง Folder
-สร้างโครงสร้าง folder ตามนี้:
+**คำอธิบาย:**
 
-```
-your-data-folder/
-├── 2025/                    # ปีที่ประมวลผล
-│   ├── fi/                  # สำหรับไฟล์ FI input
-│   │   ├── pld_nt_*.txt    # ไฟล์ input
-│   │   └── output/          # folder output (จะสร้างอัตโนมัติ)
-│   └── revenue/             # สำหรับไฟล์ Revenue
-│       ├── TRN_*.csv       # ไฟล์ transaction
-│       └── output/          # folder output (จะสร้างอัตโนมัติ)
-│
-master-folder/
-├── source/                  # Master files สำหรับ FI
-│   ├── MASTER_EXPENSE_*.csv
-│   └── MASTER_REVENUE_*.csv
-├── MASTER_PRODUCT_*.csv     # Master product
-├── MAPPING_CC.csv           # Mapping cost center
-└── clean/                   # Clean master files
-    └── MAP_PRODUCT_*.csv
-```
+**`enabled`** (true/false):
+- เปิด/ปิด anomaly detection
+
+**`iqr_multiplier`** (float):
+- ตัวคูณสำหรับ IQR (Interquartile Range)
+- `1.5` = standard (Tukey's method)
+- เพิ่มค่า = ตรวจจับน้อยลง (strict น้อยลง)
+- ลดค่า = ตรวจจับมากขึ้น (strict มากขึ้น)
+
+**`min_history`** (int):
+- จำนวนเดือนขั้นต่ำที่ต้องมีข้อมูลประวัติ
+- `3` = ต้องมีข้อมูลอย่างน้อย 3 เดือน
+
+**`rolling_window`** (int):
+- ขนาดของ rolling window สำหรับคำนวณ trend
+- `6` = ใช้ข้อมูล 6 เดือนล่าสุด
+
+**`enable_historical_highlight`** (true/false):
+- เปิด/ปิด การ highlight ข้อมูลที่ผิดปกติในอดีต
+
+**`levels`** - 4 ระดับของ anomaly detection:
+
+1. **Product Level** - ตรวจจับที่ระดับ Product
+   ```
+   Group by: BUSINESS_GROUP, SERVICE_GROUP, PRODUCT_KEY, PRODUCT_NAME
+   ```
+
+2. **Service Level** - ตรวจจับที่ระดับ Service Group
+   ```
+   Group by: BUSINESS_GROUP, SERVICE_GROUP
+   ```
+
+3. **Business Level** - ตรวจจับที่ระดับ Business Group
+   ```
+   Group by: BUSINESS_GROUP
+   ```
+
+4. **Grand Total Level** - ตรวจจับที่ระดับ Grand Total
+   ```
+   Group by: (none) - ยอดรวมทั้งหมด
+   ```
+
+**Anomaly Types:**
+- `High Spike` - ค่าสูงผิดปกติ
+- `Low Dip` - ค่าต่ำผิดปกติ
+- `New Item` - รายการใหม่
+- `Zero/Null` - ค่า 0 หรือ null ผิดปกติ
 
 ---
 
-## ▶️ วิธีการรันระบบ (How to Run)
+### 7. Logging Configuration
 
-### Option 1: ใช้ Command Line
-```bash
-# รันทุก module
-python main.py
-
-# รันเฉพาะ FI
-python main.py --module fi
-
-# รันเฉพาะ ETL
-python main.py --module etl
-```
-
-### Option 2: ใช้ Shell Script (Linux/Mac)
-```bash
-chmod +x run.sh
-./run.sh
-```
-
-### Option 3: ใช้ Web Interface
-```bash
-streamlit run web_app.py
-# เปิด browser ที่ http://localhost:8501
-```
-
----
-
-## 🔧 การปรับแต่งเพิ่มเติม (Customization)
-
-### เปลี่ยนปีประมวลผล
-1. แก้ไข `processing_year` ใน config.json
-2. อัพเดทชื่อไฟล์ master ให้ตรงกับปีใหม่
-3. อัพเดทชื่อไฟล์ output ในส่วน `fi_module.output_files`
-
-### เพิ่มไฟล์ Input
-1. สำหรับ FI: เพิ่มใน `fi_module.input_files`
-2. สำหรับ ETL: ไฟล์จะถูกค้นหาอัตโนมัติตาม pattern
-
-### ปรับ Reconciliation
 ```json
-"reconciliation": {
-  "enabled": true,      // true=เปิด, false=ปิด
-  "fi_month": "10",    // เดือนของไฟล์ FI
-  "tolerance": 0.00    // ความคลาดเคลื่อนที่ยอมรับได้
+"logging": {
+  "level": "INFO",
+  "format": "[%(asctime)s] [%(levelname)s] %(message)s",
+  "date_format": "%Y-%m-%d %H:%M:%S",
+  "enable_file_logging": true,
+  "log_directory": "logs"
 }
 ```
 
+**คำอธิบาย:**
+
+**`level`** - ระดับ log ที่จะบันทึก:
+- `DEBUG` - ทุกอย่าง (รายละเอียดมากที่สุด)
+- `INFO` - ข้อมูลทั่วไป (แนะนำ)
+- `WARNING` - เฉพาะ warnings และ errors
+- `ERROR` - เฉพาะ errors
+
+**`format`** - รูปแบบของ log message:
+```
+[2025-11-17 19:30:51] [INFO] ✓ FI Module completed
+```
+
+**`date_format`** - รูปแบบวันที่:
+- `%Y-%m-%d %H:%M:%S` = 2025-11-17 19:30:51
+
+**`enable_file_logging`** (true/false):
+- `true` - บันทึก log ลงไฟล์ (แนะนำ)
+- `false` - แสดงเฉพาะบนหน้าจอ
+
+**`log_directory`** - โฟลเดอร์สำหรับเก็บ log files
+- Default: `logs/`
+- จะสร้างไฟล์ต่อวัน: `system_20251117.log`
+
+**Log Files ที่จะถูกสร้าง:**
+```
+logs/
+├── system_20251117.log           # System logs
+├── fi_module_20251117.log        # FI Module logs
+├── etl_module_20251117.log       # ETL Module logs
+└── config_manager_20251117.log   # Config Manager logs
+```
+
 ---
 
-## 📊 ไฟล์ Output ที่จะได้
+## 🌐 การใช้งาน Web Application
 
-### จาก FI Module:
-- `pl_combined_output_YYYYMM.xlsx` - รายงาน Excel รวม
-- `pl_expense_nt_output_YYYYMM.csv` - ข้อมูล Expense
-- `pl_revenue_nt_output_YYYYMM.csv` - ข้อมูล Revenue
+### เริ่มต้น Web Server
 
-### จาก ETL Module:
-- `REVENUE_NT_REPORT_YYYY.xlsx` - รายงานหลักพร้อม Anomaly
-- `trn_revenue_nt_YYYY.csv` - ข้อมูล transaction รวม
-- `error_*.csv` - รายการที่มีปัญหา
+```bash
+# ใน directory ที่มี web_app.py
+streamlit run web_app.py
 
-### จาก Reconciliation:
-- `reconcile_summary_*.txt` - สรุปผลการตรวจสอบ
-- `reconcile_*_errors_*.csv` - รายการที่แตกต่าง
+# กำหนด port (default: 8501)
+streamlit run web_app.py --server.port 8080
+
+# เปิดให้เข้าถึงจากภายนอก
+streamlit run web_app.py --server.address 0.0.0.0
+```
+
+### การใช้งานแต่ละ Tab
+
+#### 1. Dashboard Tab
+**จุดประสงค์:** ดูภาพรวมระบบ
+
+**คุณสมบัติ:**
+- แสดงสถานะ FI และ ETL modules
+- ตรวจสอบ master files (✅/❌)
+- แสดง FI และ ETL output files
+- เตือนเมื่อเดือนไม่ตรงกัน
+
+**การใช้งาน:**
+1. Load Configuration (กดปุ่มใน Sidebar)
+2. ตรวจสอบ master files status
+3. ตรวจสอบว่าเดือน FI และ ETL ตรงกันหรือไม่
+4. ดู configuration overview
+
+#### 2. FI Module Tab
+**จุดประสงค์:** รัน FI processing
+
+**การใช้งาน:**
+1. ตรวจสอบ configuration (input files, master files, output files)
+2. กดปุ่ม "▶️ Run FI Processing"
+3. รอจนประมวลผลเสร็จ
+4. ดูผลลัพธ์ในตาราง Summary
+5. ดูกราฟ "สรุปผลตอบแทนทางการเงินและรายได้อื่น"
+
+#### 3. ETL Module Tab
+**จุดประสงค์:** รัน ETL pipeline
+
+**การใช้งาน:**
+1. ตรวจสอบ pipeline steps
+2. ดู business rules และ special mappings
+3. ตรวจสอบ reconciliation และ anomaly detection settings
+4. กดปุ่ม "▶️ Run ETL Pipeline"
+5. รอจนประมวลผลเสร็จ
+
+#### 4. Reconciliation Tab
+**จุดประสงค์:** ดูผลการตรวจสอบความถูกต้อง
+
+**การใช้งาน:**
+1. ต้องรัน ETL Module ก่อน
+2. ดูสถานะ Monthly Reconciliation (PASSED/FAILED)
+3. ดูสถานะ YTD Reconciliation (PASSED/FAILED)
+4. ดู FI Total, TRN Total, Difference
+5. ดู Validation Results (Total Records, Unique Products, etc.)
+
+#### 5. Analytics Tab
+**จุดประสงค์:** วิเคราะห์ข้อมูลและดู anomalies
+
+**การใช้งาน:**
+1. ต้องรัน ETL Module ก่อน
+2. ดู Anomaly Detection Summary (Total Anomalies, High Spikes, etc.)
+3. คลิกเปิด expander แต่ละ level เพื่อดูรายละเอียด
+4. ดูกราฟ Monthly Revenue Trend
+5. ดูกราฟ Revenue by Business Group
+6. ดู Data Summary
+
+#### 6. Logs Tab
+**จุดประสงค์:** ดู logs และ error files
+
+**การใช้งาน:**
+1. เลือก log file ที่ต้องการดู
+2. ตั้งค่า Max Lines, Filter Level, Search
+3. ดู Log Statistics (Errors, Warnings, Info, etc.)
+4. Download log file ถ้าต้องการ
+5. ดู Error Files (error_gl, error_product) และ download
+
+#### 7. Configuration Editor (Sidebar)
+**จุดประสงค์:** แก้ไข configuration
+
+**การใช้งาน:**
+1. กด "📝 Edit Configuration" ใน expander
+2. แก้ไข Processing Year
+3. แก้ไข Processing Month (FI & ETL)
+4. ปรับ Reconciliation settings
+5. ปรับ Anomaly Detection parameters
+6. กดปุ่ม "💾 Save All Changes"
+7. (Optional) กดปุ่ม "🔄 Reset" เพื่อรีเซ็ตสถานะ
+
+**⚠️ Note:** การเปลี่ยนแปลงจะเป็น temporary และหายเมื่อปิดโปรแกรม ถ้าต้องการเปลี่ยนแบบถาวร ให้แก้ไขใน `config.json` โดยตรง
 
 ---
 
-## ❓ Troubleshooting
+## 🚨 Troubleshooting
 
-### Problem: ไม่พบไฟล์ Master
-- ตรวจสอบ path ใน config.json
-- ตรวจสอบชื่อไฟล์ให้ตรงกับที่ระบุใน config
+### Installation Issues
 
-### Problem: Encoding Error
-- ตรวจสอบ encoding ของไฟล์ input (ปกติใช้ tis-620)
-- สามารถแก้ไขใน `fi_module.encoding`
+#### 1. ❌ Python version ไม่ตรง
+```bash
+Error: Python 3.7 is not supported
+```
+**วิธีแก้:**
+```bash
+# ตรวจสอบ version
+python --version
 
-### Problem: Reconciliation Failed
-- ตรวจสอบว่าเดือนใน config ตรงกับไฟล์ FI
-- ดูรายละเอียดใน reconcile_logs/
+# ติดตั้ง Python 3.8+
+# macOS: brew install python@3.9
+# Ubuntu: sudo apt install python3.9
+# Windows: ดาวน์โหลดจาก python.org
+```
+
+#### 2. ❌ ติดตั้ง dependencies ไม่สำเร็จ
+```bash
+Error: Could not install packages
+```
+**วิธีแก้:**
+```bash
+# อัพเกรด pip
+python -m pip install --upgrade pip
+
+# ติดตั้งทีละ package
+pip install pandas
+pip install openpyxl
+pip install streamlit
+
+# หรือ force reinstall
+pip install -r requirements.txt --force-reinstall
+```
+
+### Configuration Issues
+
+#### 3. ❌ Path ไม่ถูกต้อง
+```
+Error: FileNotFoundError: [Errno 2] No such file or directory
+```
+**วิธีแก้:**
+1. ตรวจสอบ `paths` ใน config.json ให้ตรงกับระบบ
+2. ใช้ absolute path แทน relative path
+3. Windows: ใช้ `\\` หรือ `/` (ห้ามใช้ `\` เดี่ยว)
+4. สร้าง folder structure ตามที่ระบุใน config
+
+#### 4. ❌ Master file not found
+```
+Error: ไม่พบไฟล์ Master: MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv
+```
+**วิธีแก้:**
+1. ตรวจสอบว่าไฟล์อยู่ที่ `{master_path}/source/`
+2. ตรวจสอบชื่อไฟล์ให้ตรงกับใน config
+3. ตรวจสอบ case sensitivity (Linux/Mac)
+4. ดู "Expected path" ใน Web App Dashboard
+
+### Runtime Issues
+
+#### 5. ❌ Month mismatch
+```
+🚨 เดือนไม่ตรงกัน! FI: 09, ETL: 10
+```
+**วิธีแก้:**
+```bash
+# CLI
+python main.py --month 10
+
+# Web App
+# Sidebar → Edit Configuration → กด "🔄 Sync เดือนให้ตรงกัน"
+```
+
+#### 6. ❌ Reconciliation failed
+```
+❌ Reconciliation ล้มเหลว
+```
+**วิธีแก้:**
+1. ตรวจสอบว่าเดือนตรงกันหรือไม่
+2. ดู log files: `revenue/output/reconcile_logs/reconcile_summary_*.txt`
+3. พิจารณาเพิ่ม tolerance: `"tolerance": 0.01`
+4. หรือปิด reconciliation ชั่วคราว: `"enabled": false`
+
+#### 7. ❌ Encoding error
+```
+UnicodeDecodeError: 'utf-8' codec can't decode
+```
+**วิธีแก้:**
+1. ตรวจสอบ encoding ของไฟล์จริง
+2. แก้ไข `fi_module.encoding.input` ใน config:
+   ```json
+   "encoding": {
+     "input": "tis-620",  // หรือ "cp874"
+     "output": "utf-8",
+     "master": "utf-8"
+   }
+   ```
+
+#### 8. ❌ Memory error
+```
+MemoryError: Unable to allocate array
+```
+**วิธีแก้:**
+1. เพิ่ม RAM
+2. ประมวลผลทีละเดือน
+3. ลดขนาดไฟล์ input
+4. ใช้ chunking (ต้องแก้ไข code)
+
+### Web App Issues
+
+#### 9. ❌ Streamlit ไม่เริ่มต้น
+```
+Error: No module named 'streamlit'
+```
+**วิธีแก้:**
+```bash
+pip install streamlit
+```
+
+#### 10. ❌ Port already in use
+```
+Error: Port 8501 is already in use
+```
+**วิธีแก้:**
+```bash
+# ใช้ port อื่น
+streamlit run web_app.py --server.port 8502
+
+# หรือปิด process ที่ใช้ port 8501
+# macOS/Linux:
+lsof -ti:8501 | xargs kill -9
+
+# Windows:
+netstat -ano | findstr :8501
+taskkill /PID <PID> /F
+```
+
+---
+
+## 💡 Best Practices
+
+### 1. การจัดการ Config
+
+**แนะนำ:**
+- สร้างหลาย config files สำหรับแต่ละ environment:
+  ```
+  config_production.json
+  config_development.json
+  config_testing.json
+  ```
+- Version control config files ด้วย git
+- Backup config files เป็นประจำ
+
+### 2. การตั้งชื่อไฟล์
+
+**แนะนำ:**
+- ใช้ template variables: `{YYYY}`, `{MM}`, `{YYYYMM}`, `{YYYYMMDD}`
+- ตั้งชื่อให้สื่อความหมาย
+- รวมปีและเดือนในชื่อไฟล์เสมอ
+
+### 3. การจัดการ Master Files
+
+**แนะนำ:**
+- ตั้งชื่อ master files ให้มีวันที่อัพเดท
+- เก็บ history ของ master files
+- ตรวจสอบ master files ก่อนรันระบบ
+
+### 4. การ Monitor ระบบ
+
+**แนะนำ:**
+- ตรวจสอบ log files เป็นประจำ
+- ดู reconciliation results ทุกครั้งที่รัน
+- ตรวจสอบ error files
+- ติดตาม anomalies
+
+### 5. การ Backup
+
+**แนะนำ:**
+- Backup input files ก่อนประมวลผล
+- Backup output files หลังเสร็จ
+- Backup config files และ master files
+- เก็บ log files สำคัญๆ
 
 ---
 
 ## 📞 Support
 
-หากมีปัญหาการใช้งาน:
-1. ตรวจสอบ error messages
-2. ดู log files
-3. ตรวจสอบ configuration
+หากมีปัญหาหรือคำถาม:
+
+1. ตรวจสอบ [Troubleshooting](#-troubleshooting) ด้านบน
+2. ตรวจสอบ log files ใน `logs/`
+3. ดู reconciliation logs ใน `revenue/output/reconcile_logs/`
 4. ติดต่อทีมพัฒนา
 
 ---
 
-## ✨ Features ที่จะพัฒนาต่อ
-
-- [ ] Database connection
-- [ ] Email notifications
-- [ ] API endpoints
-- [ ] Docker support
-- [ ] Automated scheduling
-- [ ] Advanced analytics dashboard
-
----
-
-**Version:** 2.0.0  
-**Last Updated:** January 2025  
+**Version:** 2.1.0
+**Last Updated:** November 2025
 **Developed by:** Revenue ETL Team
