@@ -136,16 +136,23 @@ def get_latest_log_content(log_dir: str = "logs", max_lines: int = 100) -> str:
     except Exception as e:
         return f"Error reading logs: {e}"
 
-def get_reconciliation_results(log_dir: str = "logs") -> dict:
+def get_reconciliation_results(config_manager) -> dict:
     """
-    อ่านผล reconciliation จาก log files
+    อ่านผล reconciliation จาก summary files ใน reconcile_logs
+
+    Args:
+        config_manager: ConfigManager instance
 
     Returns:
-        dict: ผล reconciliation
+        dict: ผล reconciliation หรือ None ถ้าไม่พบ
     """
     try:
-        # หา reconciliation log files
-        reconcile_logs = glob.glob(f"{log_dir}/reconcile_*.log")
+        # หา reconcile_logs path จาก ETL config
+        etl_config = config_manager.get_etl_config()
+        reconcile_logs_dir = os.path.join(etl_config['paths']['output'], 'reconcile_logs')
+
+        # หาไฟล์ summary ล่าสุด (.txt ไม่ใช่ .log)
+        reconcile_logs = glob.glob(f"{reconcile_logs_dir}/reconcile_summary_*.txt")
         if not reconcile_logs:
             return None
 
@@ -160,48 +167,59 @@ def get_reconciliation_results(log_dir: str = "logs") -> dict:
             'trn_total_monthly': 0.0,
             'fi_total_ytd': 0.0,
             'trn_total_ytd': 0.0,
-            'log_file': os.path.basename(latest_log)
+            'log_file': os.path.basename(latest_log),
+            'log_path': latest_log
         }
 
         with open(latest_log, 'r', encoding='utf-8') as f:
             content = f.read()
 
-            # Parse log content (simple parsing)
-            if 'Monthly Reconciliation: PASSED' in content:
-                result['monthly_passed'] = True
-            if 'YTD Reconciliation: PASSED' in content:
-                result['ytd_passed'] = True
-
-            # ค้นหาตัวเลข (simplified - อาจต้อง regex ที่ดีกว่า)
+            # Parse ตามรูปแบบของ reconciliation log
             lines = content.split('\n')
-            for line in lines:
-                if 'FI Total (Monthly)' in line:
+            for i, line in enumerate(lines):
+                # หา FI Total
+                if 'FI Total:' in line:
                     try:
-                        result['fi_total_monthly'] = float(line.split(':')[-1].strip().replace(',', ''))
-                    except:
-                        pass
-                elif 'TRN Total (Monthly)' in line:
-                    try:
-                        result['trn_total_monthly'] = float(line.split(':')[-1].strip().replace(',', ''))
-                    except:
-                        pass
-                elif 'FI Total (YTD)' in line:
-                    try:
-                        result['fi_total_ytd'] = float(line.split(':')[-1].strip().replace(',', ''))
-                    except:
-                        pass
-                elif 'TRN Total (YTD)' in line:
-                    try:
-                        result['trn_total_ytd'] = float(line.split(':')[-1].strip().replace(',', ''))
+                        # Format: "  FI Total: 4,037,549,271.88"
+                        value = line.split('FI Total:')[-1].strip().replace(',', '')
+                        if 'Reconcile ยอดรายเดือน' in '\n'.join(lines[max(0,i-5):i]):
+                            result['fi_total_monthly'] = float(value)
+                        elif 'Reconcile ยอดสะสม' in '\n'.join(lines[max(0,i-5):i]):
+                            result['fi_total_ytd'] = float(value)
                     except:
                         pass
 
-        result['monthly_diff'] = result['fi_total_monthly'] - result['trn_total_monthly']
-        result['ytd_diff'] = result['fi_total_ytd'] - result['trn_total_ytd']
+                # หา TRN Total
+                if 'TRN Total:' in line:
+                    try:
+                        value = line.split('TRN Total:')[-1].strip().replace(',', '')
+                        if 'Reconcile ยอดรายเดือน' in '\n'.join(lines[max(0,i-5):i]):
+                            result['trn_total_monthly'] = float(value)
+                        elif 'Reconcile ยอดสะสม' in '\n'.join(lines[max(0,i-5):i]):
+                            result['trn_total_ytd'] = float(value)
+                    except:
+                        pass
+
+                # หา Diff
+                if 'Diff:' in line:
+                    try:
+                        value = line.split('Diff:')[-1].strip().replace(',', '')
+                        if 'Reconcile ยอดรายเดือน' in '\n'.join(lines[max(0,i-5):i]):
+                            result['monthly_diff'] = float(value)
+                        elif 'Reconcile ยอดสะสม' in '\n'.join(lines[max(0,i-5):i]):
+                            result['ytd_diff'] = float(value)
+                    except:
+                        pass
+
+            # Check PASSED/FAILED
+            if 'Reconcile รายเดือน: PASSED' in content:
+                result['monthly_passed'] = True
+            if 'Reconcile YTD: PASSED' in content:
+                result['ytd_passed'] = True
 
         return result
     except Exception as e:
-        st.warning(f"Unable to read reconciliation results: {e}")
+        # ไม่แสดง warning ที่นี่ เพื่อไม่ให้ซ้ำซ้อน
         return None
 
 def load_configuration():
@@ -895,7 +913,7 @@ def show_reconciliation():
         return
 
     # อ่านผลจาก log files
-    reconcile_result = get_reconciliation_results()
+    reconcile_result = get_reconciliation_results(st.session_state.config_manager)
 
     if not reconcile_result:
         st.warning("⚠️ No reconciliation results found. Reconciliation may be disabled or logs not available.")
