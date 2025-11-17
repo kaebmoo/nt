@@ -174,8 +174,14 @@ class RevenueETLSystem:
             return True
                 
         except Exception as e:
-            self.log(f"❌ เกิดข้อผิดพลาดในการรัน ETL Module: {e}", "ERROR")
-            traceback.print_exc()
+            error_msg = str(e)
+            # ไม่ print traceback สำหรับ ReconciliationError (เพราะ log ไว้แล้ว)
+            if "RECONCILIATION FAILED" in error_msg or "Reconciliation Failed" in error_msg:
+                self.log(f"❌ ETL Module ล้มเหลว: Reconciliation Failed", "ERROR")
+                self.log(f"💡 ตรวจสอบ log file ในโฟลเดอร์ reconcile_logs", "INFO")
+            else:
+                self.log(f"❌ เกิดข้อผิดพลาดในการรัน ETL Module: {e}", "ERROR")
+                traceback.print_exc()
             return False
 
     def run_all(self) -> bool:
