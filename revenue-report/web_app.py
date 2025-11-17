@@ -617,6 +617,7 @@ def show_dashboard():
                 st.success(f"✅ {key}: {os.path.basename(filename)} ({file_info['size_kb']:.1f} KB)")
             else:
                 st.error(f"❌ {key}: {os.path.basename(filename)} (Not found)")
+                st.caption(f"Expected path: {full_path}")
 
     with col2:
         if get_fi_status() and st.session_state.system and st.session_state.system.fi_output:
