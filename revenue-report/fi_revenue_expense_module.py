@@ -132,13 +132,13 @@ class FIRevenueExpenseProcessor:
         Returns:
             DataFrame: สรุปผลลัพธ์ หรือ None ถ้าเกิดข้อผิดพลาด
         """
-        print("\n" + "="*80)
-        print("Starting 'process_financial_and_other' (New Logic)")
-        print("="*80)
-        
+        self.logger.info("\n" + "="*80)
+        self.logger.info("Starting 'process_financial_and_other' (New Logic)")
+        self.logger.info("="*80)
+
         try:
             # --- Step 1: สร้างข้อมูล R (รายได้ที่อยู่ใน MASTER_OTHER_REVENUE_NET) ---
-            print("\n--- Step 1: สร้างข้อมูล R ---")
+            self.logger.info("\n--- Step 1: สร้างข้อมูล R ---")
             
             master_other_rev_file = os.path.join(
                 self.paths['master'],
@@ -157,17 +157,17 @@ class FIRevenueExpenseProcessor:
             
             # Merge เพื่อคัดเฉพาะ GL_CODE ที่อยู่ใน Master
             data_R = pd.merge(of_revenue, master_other_rev, on='GL_CODE', how='inner')
-            print(f"✓ สร้าง Data R เรียบร้อย: {len(data_R)} รายการ")
-            
+            self.logger.success(f"สร้าง Data R เรียบร้อย: {len(data_R)} รายการ")
+
             # --- Step 2: สร้างข้อมูล F (ผลตอบแทนทางการเงิน) ---
-            print("\n--- Step 2: สร้างข้อมูล F (ผลตอบแทนทางการเงิน) ---")
+            self.logger.info("\n--- Step 2: สร้างข้อมูล F (ผลตอบแทนทางการเงิน) ---")
             data_F = data_R[data_R['GL_GROUP'] == 'ผลตอบแทนทางการเงิน'].copy()
-            
+
             # Log รายการก่อน sum
-            print(f"รายการผลตอบแทนทางการเงิน ({len(data_F)} รายการ):")
+            self.logger.info(f"รายการผลตอบแทนทางการเงิน ({len(data_F)} รายการ):")
             for idx, row in data_F.iterrows():
-                print(f"  - GL_CODE: {row['GL_CODE']}, GL_NAME: {row['GL_NAME']}")
-                print(f"    เดือน: {row['REVENUE_VALUE']:>15,.2f}, สะสม: {row['REVENUE_VALUE_YTD']:>15,.2f}")
+                self.logger.info(f"  - GL_CODE: {row['GL_CODE']}, GL_NAME: {row['GL_NAME']}")
+                self.logger.info(f"    เดือน: {row['REVENUE_VALUE']:>15,.2f}, สะสม: {row['REVENUE_VALUE_YTD']:>15,.2f}")
             
             # เปลี่ยนชื่อ column GL_GROUP เป็น GROUP
             data_F = data_F.rename(columns={
@@ -179,46 +179,46 @@ class FIRevenueExpenseProcessor:
             # Sum รวม
             f_month = data_F['VALUE'].sum()
             f_ytd = data_F['VALUE_YTD'].sum()
-            print(f"\n✓ ผลรวม F: เดือน = {f_month:,.2f}, สะสม = {f_ytd:,.2f}")
-            
+            self.logger.success(f"ผลรวม F: เดือน = {f_month:,.2f}, สะสม = {f_ytd:,.2f}")
+
             # --- Step 3: สร้างข้อมูล E (ค่าใช้จ่ายอื่น จาก gl_group_expense) ---
-            print("\n--- Step 3: สร้างข้อมูล E (ค่าใช้จ่ายอื่น) ---")
+            self.logger.info("\n--- Step 3: สร้างข้อมูล E (ค่าใช้จ่ายอื่น) ---")
             data_E = gl_group_expense[gl_group_expense['GROUP_NAME'] == 'ค่าใช้จ่ายอื่น'].copy()
-            
+
             # Log รายการก่อนคูณ -1
-            print(f"รายการค่าใช้จ่ายอื่น ({len(data_E)} รายการ) ก่อนคูณ -1:")
+            self.logger.info(f"รายการค่าใช้จ่ายอื่น ({len(data_E)} รายการ) ก่อนคูณ -1:")
             for idx, row in data_E.iterrows():
-                print(f"  - GL_CODE: {row['GL_CODE']}, GL_NAME: {row['GL_NAME']}")
-                print(f"    เดือน: {row['EXPENSE_VALUE']:>15,.2f}, สะสม: {row['EXPENSE_VALUE_YTD']:>15,.2f}")
-            
+                self.logger.info(f"  - GL_CODE: {row['GL_CODE']}, GL_NAME: {row['GL_NAME']}")
+                self.logger.info(f"    เดือน: {row['EXPENSE_VALUE']:>15,.2f}, สะสม: {row['EXPENSE_VALUE_YTD']:>15,.2f}")
+
             # คูณ -1
             data_E['VALUE'] = data_E['EXPENSE_VALUE'] * -1
             data_E['VALUE_YTD'] = data_E['EXPENSE_VALUE_YTD'] * -1
-            
-            print(f"\nหลังคูณ -1:")
+
+            self.logger.info(f"\nหลังคูณ -1:")
             for idx, row in data_E.iterrows():
-                print(f"  - GL_CODE: {row['GL_CODE']}, เดือน: {row['VALUE']:>15,.2f}, สะสม: {row['VALUE_YTD']:>15,.2f}")
+                self.logger.info(f"  - GL_CODE: {row['GL_CODE']}, เดือน: {row['VALUE']:>15,.2f}, สะสม: {row['VALUE_YTD']:>15,.2f}")
             
             # เลือกเฉพาะ columns ที่ต้องการ
             data_E_final = data_E[['GL_CODE', 'GL_NAME', 'VALUE', 'VALUE_YTD']].copy()
-            
+
             # --- Step 4: สร้างข้อมูล RE (รวม R กับ E) ---
-            print("\n--- Step 4: สร้างข้อมูล RE (รวม R + E) ---")
+            self.logger.info("\n--- Step 4: สร้างข้อมูล RE (รวม R + E) ---")
             # เปลี่ยนชื่อ columns ของ R ให้ตรงกัน
             data_R_renamed = data_R.rename(columns={
                 'REVENUE_VALUE': 'VALUE',
                 'REVENUE_VALUE_YTD': 'VALUE_YTD'
             })
-            
+
             # เลือกเฉพาะ columns ที่ต้องการจาก R
             data_R_for_concat = data_R_renamed[['GL_CODE', 'GL_NAME', 'VALUE', 'VALUE_YTD']].copy()
-            
+
             # รวม R กับ E
             data_RE = pd.concat([data_R_for_concat, data_E_final], ignore_index=True)
-            print(f"✓ สร้าง Data RE: {len(data_RE)} รายการ (R: {len(data_R_for_concat)}, E: {len(data_E_final)})")
-            
+            self.logger.success(f"สร้าง Data RE: {len(data_RE)} รายการ (R: {len(data_R_for_concat)}, E: {len(data_E_final)})")
+
             # --- Step 5: สร้างข้อมูล RE_OTHER (Merge กับ master_revenue_expense_net) ---
-            print("\n--- Step 5: สร้างข้อมูล RE_OTHER ---")
+            self.logger.info("\n--- Step 5: สร้างข้อมูล RE_OTHER ---")
             
             master_rev_exp_net_file = os.path.join(
                 self.paths['master'],
@@ -237,14 +237,14 @@ class FIRevenueExpenseProcessor:
             
             # Merge (inner join - เอาเฉพาะที่ GL_CODE ตรงกัน)
             data_RE_OTHER = pd.merge(data_RE, master_rev_exp_net[["GL_CODE", "SUB_GROUP", "GROUP"]], on='GL_CODE', how='inner')
-            print(f"✓ สร้าง Data RE_OTHER: {len(data_RE_OTHER)} รายการ")
-            print(data_RE_OTHER.sum(numeric_only=True))
-            
+            self.logger.success(f"สร้าง Data RE_OTHER: {len(data_RE_OTHER)} รายการ")
+            self.logger.debug(str(data_RE_OTHER.sum(numeric_only=True)))
+
             # --- Step 6: แยกข้อมูล R_OTHER (รายได้อื่น) ---
-            print("\n--- Step 6: แยกข้อมูล R_OTHER (GROUP = รายได้อื่น) ---")
+            self.logger.info("\n--- Step 6: แยกข้อมูล R_OTHER (GROUP = รายได้อื่น) ---")
             data_R_OTHER = data_RE_OTHER[data_RE_OTHER['GROUP'] == 'รายได้อื่น'].copy()
-            print(f"✓ พบข้อมูล R_OTHER: {len(data_R_OTHER)} รายการ")
-            print(data_R_OTHER.groupby('GROUP').sum(numeric_only=True))
+            self.logger.success(f"พบข้อมูล R_OTHER: {len(data_R_OTHER)} รายการ")
+            self.logger.debug(str(data_R_OTHER.groupby('GROUP').sum(numeric_only=True)))
             
             data_R_OTHER = data_R_OTHER.groupby(['GROUP', 'SUB_GROUP'], dropna=False).agg({
                 'GL_CODE': 'first',
@@ -254,31 +254,31 @@ class FIRevenueExpenseProcessor:
             }).reset_index()
             
             # --- Step 7: แยก R_OTHER_NET และ R_OTHER_E (แยกระดับคอลัมน์) ---
-            print("\n--- Step 7: แยก R_OTHER_NET และ R_OTHER_E (แยกระดับคอลัมน์) ---")
-            
-            print(f"ยอดรวมใน data_R_OTHER (ก่อนแยก):")
-            print(f"  VALUE ทั้งหมด: {data_R_OTHER['VALUE'].sum():,.2f}")
-            print(f"  VALUE_YTD ทั้งหมด: {data_R_OTHER['VALUE_YTD'].sum():,.2f}")
-            
+            self.logger.info("\n--- Step 7: แยก R_OTHER_NET และ R_OTHER_E (แยกระดับคอลัมน์) ---")
+
+            self.logger.info(f"ยอดรวมใน data_R_OTHER (ก่อนแยก):")
+            self.logger.info(f"  VALUE ทั้งหมด: {data_R_OTHER['VALUE'].sum():,.2f}")
+            self.logger.info(f"  VALUE_YTD ทั้งหมด: {data_R_OTHER['VALUE_YTD'].sum():,.2f}")
+
             # คำนวณผลรวมโดยตรง - แยกในระดับคอลัมน์
             # รายได้อื่น (บวก)
             r_other_net_month = data_R_OTHER.loc[data_R_OTHER['VALUE'] > 0, 'VALUE'].sum()
             r_other_net_ytd = data_R_OTHER.loc[data_R_OTHER['VALUE_YTD'] > 0, 'VALUE_YTD'].sum()
-            
+
             # ค่าใช้จ่ายอื่น (ลบ)
             r_other_e_month = data_R_OTHER.loc[data_R_OTHER['VALUE'] < 0, 'VALUE'].sum()
             r_other_e_ytd = data_R_OTHER.loc[data_R_OTHER['VALUE_YTD'] < 0, 'VALUE_YTD'].sum()
-            
-            print(f"\n✓ R_OTHER_NET (รายได้อื่น - บวก):")
-            print(f"  เดือน: {r_other_net_month:,.2f}")
-            print(f"  สะสม: {r_other_net_ytd:,.2f}")
-            
-            print(f"\n✓ R_OTHER_E (ค่าใช้จ่ายอื่น - ลบ):")
-            print(f"  เดือน: {r_other_e_month:,.2f}")
-            print(f"  สะสม: {r_other_e_ytd:,.2f}")
-            
+
+            self.logger.success("R_OTHER_NET (รายได้อื่น - บวก):")
+            self.logger.info(f"  เดือน: {r_other_net_month:,.2f}")
+            self.logger.info(f"  สะสม: {r_other_net_ytd:,.2f}")
+
+            self.logger.success("R_OTHER_E (ค่าใช้จ่ายอื่น - ลบ):")
+            self.logger.info(f"  เดือน: {r_other_e_month:,.2f}")
+            self.logger.info(f"  สะสม: {r_other_e_ytd:,.2f}")
+
             # --- Step 8: สร้างผลลัพธ์สุดท้าย ---
-            print("\n--- Step 8: สรุปผลลัพธ์สุดท้าย ---")
+            self.logger.info("\n--- Step 8: สรุปผลลัพธ์สุดท้าย ---")
             
             # ผลตอบแทนทางการเงิน (จาก F)
             financial_month = f_month
@@ -301,31 +301,31 @@ class FIRevenueExpenseProcessor:
             summary_df = pd.DataFrame(summary_data)
             
             # แสดงผลลัพธ์
-            print("\n" + "="*80)
-            print("ผลลัพธ์สุดท้าย: รายได้/ค่าใช้จ่ายอื่น")
-            print("="*80)
-            print(f"{'รายการ':<35} {'เดือน':>20} {'สะสม':>20}")
-            print("-"*80)
-            print(f"{'ผลตอบแทนทางการเงิน':<35} {financial_month:>20,.2f} {financial_ytd:>20,.2f}")
-            print(f"{'รายได้อื่น':<35} {other_income_month:>20,.2f} {other_income_ytd:>20,.2f}")
-            print(f"{'ค่าใช้จ่ายอื่น':<35} {other_expense_month:>20,.2f} {other_expense_ytd:>20,.2f}")
-            print("="*80)
-            
-            print("\n✓ End 'process_financial_and_other' (New Logic)")
+            self.logger.info("\n" + "="*80)
+            self.logger.info("ผลลัพธ์สุดท้าย: รายได้/ค่าใช้จ่ายอื่น")
+            self.logger.info("="*80)
+            self.logger.info(f"{'รายการ':<35} {'เดือน':>20} {'สะสม':>20}")
+            self.logger.info("-"*80)
+            self.logger.info(f"{'ผลตอบแทนทางการเงิน':<35} {financial_month:>20,.2f} {financial_ytd:>20,.2f}")
+            self.logger.info(f"{'รายได้อื่น':<35} {other_income_month:>20,.2f} {other_income_ytd:>20,.2f}")
+            self.logger.info(f"{'ค่าใช้จ่ายอื่น':<35} {other_expense_month:>20,.2f} {other_expense_ytd:>20,.2f}")
+            self.logger.info("="*80)
+
+            self.logger.success("End 'process_financial_and_other' (New Logic)")
             
             return summary_df
             
         except FileNotFoundError as e:
-            print(f"\n*** ERROR: ไม่พบไฟล์! ***")
-            print(f"File not found: {e.filename}")
-            print("\nกรุณาตรวจสอบว่าไฟล์เหล่านี้อยู่ใน master_path:")
-            print(f"1. {self.config['master_files']['other_revenue']}")
-            print(f"2. {self.config['master_files']['revenue_expense_net']}")
+            self.logger.error(f"\n*** ERROR: ไม่พบไฟล์! ***")
+            self.logger.error(f"File not found: {e.filename}")
+            self.logger.error("\nกรุณาตรวจสอบว่าไฟล์เหล่านี้อยู่ใน master_path:")
+            self.logger.error(f"1. {self.config['master_files']['other_revenue']}")
+            self.logger.error(f"2. {self.config['master_files']['revenue_expense_net']}")
             return None
         except KeyError as e:
-            print(f"\n*** ERROR: ไม่พบคอลัมน์ที่ต้องการ! ***")
-            print(f"KeyError: {e}")
-            print("\nกรุณาตรวจสอบชื่อคอลัมน์ในไฟล์ Master (เช่น 'GL_CODE', 'GL_GROUP', 'GROUP')")
+            self.logger.error(f"\n*** ERROR: ไม่พบคอลัมน์ที่ต้องการ! ***")
+            self.logger.error(f"KeyError: {e}")
+            self.logger.error("\nกรุณาตรวจสอบชื่อคอลัมน์ในไฟล์ Master (เช่น 'GL_CODE', 'GL_GROUP', 'GROUP')")
             return None
         except Exception as e:
             print(f"\n*** ERROR (Unexpected): {e} ***")
