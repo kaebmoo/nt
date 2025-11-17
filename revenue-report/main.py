@@ -21,6 +21,7 @@ from pathlib import Path
 # Import V2 modules
 from config_manager import ConfigManager, get_config_manager
 from fi_revenue_expense_module import FIRevenueExpenseProcessor
+from logger_utils import ETLLogger
 
 # Import revenue_etl_report module เพื่อสร้าง RevenueETL instance
 import revenue_etl_report
@@ -36,38 +37,40 @@ class RevenueETLSystem:
     def __init__(self, config_path: str = "config.json"):
         """
         Initialize Revenue ETL System
-        
+
         Args:
             config_path: path ของไฟล์ configuration
         """
         self.config_manager = get_config_manager(config_path)
-        
+
+        # Setup logger
+        self.logger = ETLLogger.get_logger('system')
+
         # ดึง config ที่อัพเดท path แล้ว
         self.fi_config = self.config_manager.get_fi_config()
         self.etl_config = self.config_manager.get_etl_config()
-        
+
         self.fi_processor = None
         self.etl_processor = None
-        
+
         # สถานะการประมวลผล (สำหรับ web_app)
         self.fi_completed = False
         self.etl_completed = False
-        
+
         # ผลลัพธ์
         self.fi_output = None
         self.etl_final_df = None
         self.etl_anomaly_results = None
-        
+
     def log(self, message: str, level: str = "INFO") -> None:
         """
         แสดงข้อความ log
-        
+
         Args:
             message: ข้อความที่ต้องการแสดง
             level: ระดับของ log
         """
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] [{level}] {message}")
+        self.logger.log(message, level)
     
     def run_fi_module(self) -> bool:
         """
