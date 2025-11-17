@@ -164,25 +164,37 @@ class RevenueReconciliation:
         self.log("\n" + "=" * 80)
         self.log("สรุปผลการ Reconciliation")
         self.log("=" * 80)
-        
+
         all_passed = monthly_result['passed'] and ytd_result['passed']
-        
+
+        # ตรวจสอบ GL Offset
+        has_gl_offset = (
+            monthly_result.get('status') == 'PASSED_WITH_GL_OFFSET' or
+            ytd_result.get('status') == 'PASSED_WITH_GL_OFFSET'
+        )
+
         if all_passed:
-            self.log("✓ ผ่านการตรวจสอบทั้งหมด!", "SUCCESS")
-            self.log(f"  - Reconcile รายเดือน: PASSED ({monthly_result['total_records']} GL Codes)")
-            self.log(f"  - Reconcile YTD: PASSED ({ytd_result['total_records']} GL Codes)")
+            if has_gl_offset:
+                self.log("⚠️  ผ่านการตรวจสอบ (พบการปรับโยก GL)", "WARNING")
+                self.log(f"  - Reconcile รายเดือน: {monthly_result.get('status', 'PASSED')} ({monthly_result['total_records']} GL Codes)")
+                self.log(f"  - Reconcile YTD: {ytd_result.get('status', 'PASSED')} ({ytd_result['total_records']} GL Codes)")
+                self.log(f"  💡 การปรับโยก GL เป็นเรื่องปกติในการปรับปรุงบัญชี", "INFO")
+            else:
+                self.log("✓ ผ่านการตรวจสอบทั้งหมด!", "SUCCESS")
+                self.log(f"  - Reconcile รายเดือน: PASSED ({monthly_result['total_records']} GL Codes)")
+                self.log(f"  - Reconcile YTD: PASSED ({ytd_result['total_records']} GL Codes)")
         else:
             self.log("❌ พบความแตกต่างที่ไม่ยอมรับได้!", "ERROR")
-            
+
             if not monthly_result['passed']:
                 self.log(f"  - Reconcile รายเดือน: FAILED ({monthly_result['error_count']} errors)", "ERROR")
             else:
-                self.log(f"  - Reconcile รายเดือน: PASSED", "SUCCESS")
-                
+                self.log(f"  - Reconcile รายเดือน: {monthly_result.get('status', 'PASSED')}", "SUCCESS")
+
             if not ytd_result['passed']:
                 self.log(f"  - Reconcile YTD: FAILED ({ytd_result['error_count']} errors)", "ERROR")
             else:
-                self.log(f"  - Reconcile YTD: PASSED", "SUCCESS")
+                self.log(f"  - Reconcile YTD: {ytd_result.get('status', 'PASSED')}", "SUCCESS")
         
         # บันทึก log file
         self._save_reconcile_log()
@@ -240,24 +252,50 @@ class RevenueReconciliation:
         # สรุปผล
         total_records = len(df_compare)
         error_count = len(errors)
-        passed = error_count == 0
-        
+
         # สถิติ
         total_fi = df_compare['FI_VALUE'].sum()
         total_trn = df_compare['TRN_VALUE'].sum()
-        total_diff = total_fi - total_trn
-        
+        total_diff = round(total_fi - total_trn, 2)
+
         self.log(f"  Total Records: {total_records:,}")
         self.log(f"  FI Total: {total_fi:,.2f}")
         self.log(f"  TRN Total: {total_trn:,.2f}")
         self.log(f"  Diff: {total_diff:,.2f}")
-        
-        if passed:
+
+        # === [NEW] ตรวจสอบการปรับโยก GL (GL Offset/Adjustment) ===
+        # ถ้ายอดรวมเท่ากัน (diff ≈ 0) แต่มีรายการย่อยแตกต่าง = การปรับโยก GL
+        is_gl_offset = (abs(total_diff) <= tolerance) and (error_count > 0)
+
+        if is_gl_offset:
+            # ตรวจสอบว่าเป็นการปรับโยกจริงหรือไม่ (ผลรวมของ diff ต้องเป็น 0)
+            sum_of_diffs = sum([e['diff'] for e in errors])
+            if abs(sum_of_diffs) <= tolerance:
+                self.log(f"  ⚠️  พบการปรับโยก GL: {error_count} รายการ (ยอดรวมเท่ากัน)", "WARNING")
+                self.log(f"  💡 นี่คือการปรับปรุงบัญชี (GL Adjustment) - ถือว่าผ่าน", "INFO")
+
+                # แสดงรายการปรับโยก
+                self._display_errors(errors, reconcile_type)
+
+                # ถือว่าผ่าน แต่มี warning
+                passed = True
+                reconcile_status = 'PASSED_WITH_GL_OFFSET'
+            else:
+                # ยอดรวมเท่ากัน แต่ผลรวมของ diff ไม่เป็น 0 = มีปัญหา
+                self.log(f"  ❌ พบ {error_count} รายการที่แตกต่าง (ไม่ใช่การปรับโยก)", "ERROR")
+                self._display_errors(errors, reconcile_type)
+                passed = False
+                reconcile_status = 'FAILED'
+        elif error_count == 0:
             self.log(f"  ✓ ผ่านการตรวจสอบ!", "SUCCESS")
+            passed = True
+            reconcile_status = 'PASSED'
         else:
             self.log(f"  ❌ พบ {error_count} รายการที่แตกต่าง", "ERROR")
-            # แสดง top 10 errors
             self._display_errors(errors, reconcile_type)
+            passed = False
+            reconcile_status = 'FAILED'
+        # === [END] GL Offset Check ===
         
         return {
             'passed': passed,
@@ -267,7 +305,8 @@ class RevenueReconciliation:
             'total_fi': total_fi,
             'total_trn': total_trn,
             'total_diff': total_diff,
-            'reconcile_type': reconcile_type
+            'reconcile_type': reconcile_type,
+            'status': reconcile_status  # 'PASSED', 'PASSED_WITH_GL_OFFSET', 'FAILED'
         }
     
     def _display_errors(self, errors, reconcile_type, max_display=10):
@@ -324,9 +363,10 @@ class RevenueReconciliation:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_dir = Path(self.paths['output']) / 'reconcile_logs'
         log_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # บันทึก Summary Log (Text)
         summary_file = log_dir / f"reconcile_summary_{self.config['year']}_{timestamp}.txt"
+        self.log(f"📁 Log Directory: {log_dir}")
         with open(summary_file, 'w', encoding='utf-8') as f:
             f.write("=" * 80 + "\n")
             f.write("REVENUE RECONCILIATION REPORT\n")
@@ -342,7 +382,7 @@ class RevenueReconciliation:
             f.write("=" * 80 + "\n")
             f.write("[1] RECONCILE รายเดือน (MONTHLY)\n")
             f.write("=" * 80 + "\n")
-            f.write(f"Status: {'PASSED' if monthly['passed'] else 'FAILED'}\n")
+            f.write(f"Status: {monthly.get('status', 'PASSED' if monthly['passed'] else 'FAILED')}\n")
             f.write(f"Total Records: {monthly['total_records']:,}\n")
             f.write(f"FI Total: {monthly['total_fi']:,.2f}\n")
             f.write(f"TRN Total: {monthly['total_trn']:,.2f}\n")
@@ -369,7 +409,7 @@ class RevenueReconciliation:
             f.write("=" * 80 + "\n")
             f.write("[2] RECONCILE ยอดสะสม (YTD)\n")
             f.write("=" * 80 + "\n")
-            f.write(f"Status: {'PASSED' if ytd['passed'] else 'FAILED'}\n")
+            f.write(f"Status: {ytd.get('status', 'PASSED' if ytd['passed'] else 'FAILED')}\n")
             f.write(f"Total Records: {ytd['total_records']:,}\n")
             f.write(f"FI Total: {ytd['total_fi']:,.2f}\n")
             f.write(f"TRN Total: {ytd['total_trn']:,.2f}\n")
