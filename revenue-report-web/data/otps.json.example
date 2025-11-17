@@ -1,0 +1,18 @@
+{
+  "otps": [
+    {
+      "email": "admin@ntplc.co.th",
+      "otp_code": "123456",
+      "created_at": "2025-01-15T14:25:00",
+      "expires_at": "2025-01-15T14:30:00",
+      "used": false
+    },
+    {
+      "email": "user1@ntplc.co.th",
+      "otp_code": "789012",
+      "created_at": "2025-01-15T14:20:00",
+      "expires_at": "2025-01-15T14:25:00",
+      "used": true
+    }
+  ]
+}

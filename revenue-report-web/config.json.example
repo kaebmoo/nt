@@ -1,0 +1,28 @@
+{
+  "app": {
+    "name": "Revenue Report Distribution System",
+    "version": "1.0.0",
+    "dev_mode": true,
+    "allowed_email_domain": "ntplc.co.th",
+    "timezone": "Asia/Bangkok"
+  },
+  "paths": {
+    "reports_base_path": "/path/to/your/Datasource",
+    "reports_year": "2025",
+    "reports_relative_path": "all/revenue/{year}",
+    "logs_directory": "logs",
+    "data_directory": "data"
+  },
+  "email": {
+    "smtp_server": "mail.ntplc.co.th",
+    "smtp_port": 465,
+    "use_ssl": true,
+    "from_email": "noreply@ntplc.co.th",
+    "sender_name": "Revenue Report System"
+  },
+  "otp": {
+    "code_length": 6,
+    "expiry_minutes": 5,
+    "max_attempts": 3
+  }
+}
