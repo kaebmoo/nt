@@ -599,10 +599,10 @@ def show_dashboard():
     with col1:
         st.markdown("### Master Files")
         # Check FI master files
-        fi_config = st.session_state.config_manager.config['fi_module']
-        master_path = st.session_state.config_manager.get_master_path()
+        fi_config = st.session_state.config_manager.get_fi_config()
+        master_path = fi_config['paths']['master']
 
-        for key, filename in fi_config['master_files'].items():
+        for key, filename in st.session_state.config_manager.config['fi_module']['master_files'].items():
             # Handle files with 'source/' prefix
             if filename.startswith('source/'):
                 full_path = os.path.join(master_path, filename)
