@@ -342,29 +342,29 @@ class ConfigManager:
         """
         แสดงสรุป configuration ปัจจุบัน
         """
-        print("\n" + "=" * 80)
-        print("CONFIGURATION SUMMARY")
-        print("=" * 80)
-        
-        print(f"Environment: {self.config['environment']['name']}")
-        print(f"Processing Year: {self.config['processing_year']}")
-        print(f"Operating System: {self.os_platform}")
-        
-        print("\nFI Module:")
-        print(f"  Input Path: {self.paths['fi']['input']}")
-        print(f"  Output Path: {self.paths['fi']['output']}")
-        print(f"  Input Files: {self.config['fi_module']['input_files']}")
-        
-        print("\nETL Module:")
-        print(f"  Input Path: {self.paths['etl']['input']}")
-        print(f"  Output Path: {self.paths['etl']['output']}")
-        print(f"  Final Output: {self.paths['etl']['final_output']}")
-        print(f"  Reconciliation: {'Enabled' if self.config['etl_module']['reconciliation']['enabled'] else 'Disabled'}")
-        
-        print("\nMaster Files:")
-        print(f"  Master Path: {self.paths['fi']['master']}")
-        
-        print("=" * 80)
+        self.logger.info("\n" + "=" * 80)
+        self.logger.info("CONFIGURATION SUMMARY")
+        self.logger.info("=" * 80)
+
+        self.logger.info(f"Environment: {self.config['environment']['name']}")
+        self.logger.info(f"Processing Year: {self.config['processing_year']}")
+        self.logger.info(f"Operating System: {self.os_platform}")
+
+        self.logger.info("\nFI Module:")
+        self.logger.info(f"  Input Path: {self.paths['fi']['input']}")
+        self.logger.info(f"  Output Path: {self.paths['fi']['output']}")
+        self.logger.info(f"  Input Files: {self.config['fi_module']['input_files']}")
+
+        self.logger.info("\nETL Module:")
+        self.logger.info(f"  Input Path: {self.paths['etl']['input']}")
+        self.logger.info(f"  Output Path: {self.paths['etl']['output']}")
+        self.logger.info(f"  Final Output: {self.paths['etl']['final_output']}")
+        self.logger.info(f"  Reconciliation: {'Enabled' if self.config['etl_module']['reconciliation']['enabled'] else 'Disabled'}")
+
+        self.logger.info("\nMaster Files:")
+        self.logger.info(f"  Master Path: {self.paths['fi']['master']}")
+
+        self.logger.info("=" * 80)
     
     def get_all_paths(self) -> Dict[str, Any]:
         """

@@ -305,6 +305,7 @@ def main():
         sys.exit(0 if success else 1)
         
     except FileNotFoundError as e:
+        # ใช้ print เพราะ system instance อาจจะยังไม่ถูกสร้าง
         print(f"❌ ไม่พบไฟล์: {e}")
         sys.exit(1)
     except Exception as e:

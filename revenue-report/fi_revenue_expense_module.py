@@ -328,7 +328,7 @@ class FIRevenueExpenseProcessor:
             self.logger.error("\nกรุณาตรวจสอบชื่อคอลัมน์ในไฟล์ Master (เช่น 'GL_CODE', 'GL_GROUP', 'GROUP')")
             return None
         except Exception as e:
-            print(f"\n*** ERROR (Unexpected): {e} ***")
+            self.logger.error(f"\n*** ERROR (Unexpected): {e} ***")
             traceback.print_exc()
             return None
     
