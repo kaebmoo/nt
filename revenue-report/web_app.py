@@ -261,103 +261,77 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Configuration")
-        
+        st.header("⚙️ Quick Settings")
+
         # Load configuration
         if st.button("📂 Load Configuration"):
             if load_configuration():
                 st.success("✅ Configuration loaded successfully")
-        
+
         # Display config status
         if st.session_state.config_manager:
             config = st.session_state.config_manager.config
-            
-            st.markdown("### 📊 Current Configuration")
+
+            st.markdown("### 📊 Current Status")
             st.info(f"**Year:** {config['processing_year']}")
             st.info(f"**Environment:** {config['environment']['name']}")
             st.info(f"**OS:** {st.session_state.config_manager.os_platform}")
-            
-            # Configuration Editor
-            with st.expander("📝 Edit Configuration"):
-                new_year = st.text_input("Processing Year", value=config['processing_year'])
 
-                # Processing Months
-                st.markdown("**Processing Months**")
+            st.markdown("---")
 
-                # Check if months are in sync
-                current_fi_month = config['processing_months']['fi_current_month']
-                current_etl_month = config['processing_months']['etl_end_month']
+            # Quick Settings
+            st.markdown("### ⚡ Quick Controls")
 
-                if current_fi_month != current_etl_month:
-                    st.warning(f"⚠️ เดือนไม่ตรงกัน! FI: {current_fi_month:02d}, ETL: {current_etl_month:02d}")
-                    st.error("❌ Reconciliation จะล้มเหลวเมื่อเดือนไม่ตรงกัน")
-                    if st.button("🔄 Sync เดือนให้ตรงกัน (ใช้ค่า FI Month)"):
-                        st.session_state.config_manager.config['processing_months']['etl_end_month'] = current_fi_month
-                        st.rerun()
+            # Processing Month
+            current_fi_month = config['processing_months']['fi_current_month']
 
-                fi_month = st.number_input(
-                    "Processing Month (FI & ETL)",
-                    min_value=1,
-                    max_value=12,
-                    value=current_fi_month,
-                    help="เดือนที่ทั้ง FI และ ETL จะประมวลผล (ต้องเท่ากันเสมอ)"
-                )
+            fi_month = st.number_input(
+                "📅 Processing Month",
+                min_value=1,
+                max_value=12,
+                value=current_fi_month,
+                help="เดือนที่ทั้ง FI และ ETL จะประมวลผล (ต้องเท่ากันเสมอ)"
+            )
 
-                # Reconciliation Settings
-                st.markdown("**Reconciliation**")
-                reconcile_enabled = st.checkbox(
-                    "Enable Reconciliation",
-                    value=config['etl_module']['reconciliation']['enabled']
-                )
-                reconcile_tolerance = st.number_input(
-                    "Tolerance",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=config['etl_module']['reconciliation']['tolerance'],
-                    format="%.2f"
-                )
+            # Anomaly Detection - IQR Multiplier
+            iqr_multiplier = st.number_input(
+                "📊 IQR Multiplier",
+                min_value=1.0,
+                max_value=3.0,
+                value=config['etl_module']['anomaly_detection']['iqr_multiplier'],
+                step=0.1,
+                format="%.1f",
+                help="ค่าคูณสำหรับ Interquartile Range ในการหา anomaly"
+            )
 
-                # Anomaly Detection Settings
-                st.markdown("**Anomaly Detection**")
-                anomaly_enabled = st.checkbox(
-                    "Enable Anomaly Detection",
-                    value=config['etl_module']['anomaly_detection']['enabled']
-                )
-                iqr_multiplier = st.number_input(
-                    "IQR Multiplier",
-                    min_value=1.0,
-                    max_value=3.0,
-                    value=config['etl_module']['anomaly_detection']['iqr_multiplier'],
-                    step=0.1,
-                    format="%.1f"
-                )
+            # Anomaly Detection - Rolling Window
+            rolling_window = st.number_input(
+                "📈 Rolling Window",
+                min_value=3,
+                max_value=12,
+                value=config['etl_module']['anomaly_detection']['rolling_window'],
+                step=1,
+                help="จำนวนเดือนสำหรับ rolling average"
+            )
 
-                if st.button("💾 Save All Changes"):
-                    # Update year (root level)
-                    st.session_state.config_manager.config['processing_year'] = new_year
+            if st.button("💾 Save Quick Settings", use_container_width=True):
+                # Update months (sync ทั้ง FI และ ETL ให้เท่ากันเสมอ)
+                st.session_state.config_manager.set_processing_month(fi_month, update_etl=True)
 
-                    # Update months (sync ทั้ง FI และ ETL ให้เท่ากันเสมอ)
-                    st.session_state.config_manager.set_processing_month(fi_month, update_etl=True)
+                # Update anomaly detection settings
+                st.session_state.config_manager.config['etl_module']['anomaly_detection']['iqr_multiplier'] = iqr_multiplier
+                st.session_state.config_manager.config['etl_module']['anomaly_detection']['rolling_window'] = rolling_window
 
-                    # Update reconciliation
-                    st.session_state.config_manager.config['etl_module']['reconciliation']['enabled'] = reconcile_enabled
-                    st.session_state.config_manager.config['etl_module']['reconciliation']['tolerance'] = reconcile_tolerance
+                # Reload paths (เพราะ year อาจเปลี่ยน)
+                st.session_state.config_manager._setup_paths()
 
-                    # Update anomaly detection
-                    st.session_state.config_manager.config['etl_module']['anomaly_detection']['enabled'] = anomaly_enabled
-                    st.session_state.config_manager.config['etl_module']['anomaly_detection']['iqr_multiplier'] = iqr_multiplier
+                # Reload config in system
+                if st.session_state.system:
+                    st.session_state.system.fi_config = st.session_state.config_manager.get_fi_config()
+                    st.session_state.system.etl_config = st.session_state.config_manager.get_etl_config()
 
-                    # Reload paths (เพราะ year อาจเปลี่ยน)
-                    st.session_state.config_manager._setup_paths()
+                st.success(f"✅ Settings updated: Month {fi_month:02d}, IQR {iqr_multiplier:.1f}, Window {rolling_window}")
 
-                    # Reload config in system
-                    if st.session_state.system:
-                        st.session_state.system.fi_config = st.session_state.config_manager.get_fi_config()
-                        st.session_state.system.etl_config = st.session_state.config_manager.get_etl_config()
-
-                    st.success(f"✅ Configuration updated: Month {fi_month:02d} (FI & ETL synced)")
-                    st.info("💡 Note: Changes are temporary and will be lost on restart unless saved to file")
-        
         st.markdown("---")
         
         # Processing Controls
@@ -399,25 +373,28 @@ def main():
             st.info("⏳ ETL Module Pending")
     
     # Main Content Area
-    tabs = st.tabs(["📊 Dashboard", "📁 FI Module", "🔄 ETL Module", "✅ Reconciliation", "📈 Analytics", "📋 Logs"])
-    
+    tabs = st.tabs(["📊 Dashboard", "📁 FI Module", "🔄 ETL Module", "✅ Reconciliation", "📈 Analytics", "📋 Logs", "⚙️ Configuration"])
+
     with tabs[0]:
         show_dashboard()
-    
+
     with tabs[1]:
         show_fi_module()
-    
+
     with tabs[2]:
         show_etl_module()
-    
+
     with tabs[3]:
         show_reconciliation()
-    
+
     with tabs[4]:
         show_analytics()
-    
+
     with tabs[5]:
         show_logs()
+
+    with tabs[6]:
+        show_configuration()
 
 def run_all_modules():
     """
@@ -1193,6 +1170,379 @@ def show_analytics():
 
     else:
         st.info("ETL data not available. Please run ETL processing first.")
+
+def show_configuration():
+    """แสดงหน้า Configuration - Comprehensive Config Editor"""
+    st.header("⚙️ Configuration Editor")
+
+    if not st.session_state.config_manager:
+        st.info("Please load configuration first")
+        return
+
+    config = st.session_state.config_manager.config
+
+    st.warning("⚠️ การแก้ไข configuration จะมีผลชั่วคราว และจะหายเมื่อรีสตาร์ทโปรแกรม")
+    st.info("💡 เพื่อบันทึกถาวร ให้แก้ไขไฟล์ config.json โดยตรง")
+
+    # Section 1: Environment & Paths
+    st.markdown("---")
+    st.markdown("## 1️⃣ Environment & Paths")
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.markdown("### Environment")
+        env_name = st.text_input("Environment Name", value=config['environment']['name'], key="env_name")
+        env_desc = st.text_input("Description", value=config['environment']['description'], key="env_desc")
+
+        st.markdown("### Processing Period")
+        new_year = st.text_input("Processing Year", value=config['processing_year'], key="proc_year")
+
+        current_fi_month = config['processing_months']['fi_current_month']
+        current_etl_month = config['processing_months']['etl_end_month']
+
+        if current_fi_month != current_etl_month:
+            st.error(f"🚨 เดือนไม่ตรงกัน! FI: {current_fi_month:02d}, ETL: {current_etl_month:02d}")
+
+        new_fi_month = st.number_input("FI Current Month", min_value=1, max_value=12, value=current_fi_month, key="fi_month")
+        new_etl_month = st.number_input("ETL End Month", min_value=1, max_value=12, value=current_etl_month, key="etl_month")
+
+        if new_fi_month != new_etl_month:
+            st.warning("⚠️ FI และ ETL ควรเป็นเดือนเดียวกัน!")
+
+    with col2:
+        st.markdown("### OS-Specific Paths")
+
+        # Current OS
+        current_os = st.session_state.config_manager.os_platform
+        st.info(f"Current OS: **{current_os}**")
+
+        # Darwin (macOS) paths
+        with st.expander("🍎 macOS (Darwin) Paths", expanded=(current_os == 'darwin')):
+            darwin_base = st.text_input(
+                "Base Path",
+                value=config['paths']['darwin']['base_path'],
+                key="darwin_base"
+            )
+            darwin_master = st.text_input(
+                "Master Path",
+                value=config['paths']['darwin']['master_path'],
+                key="darwin_master"
+            )
+
+        # Linux paths
+        with st.expander("🐧 Linux Paths", expanded=(current_os == 'linux')):
+            linux_base = st.text_input(
+                "Base Path",
+                value=config['paths']['linux']['base_path'],
+                key="linux_base"
+            )
+            linux_master = st.text_input(
+                "Master Path",
+                value=config['paths']['linux']['master_path'],
+                key="linux_master"
+            )
+
+        # Windows paths
+        with st.expander("🪟 Windows Paths", expanded=(current_os == 'windows')):
+            windows_base = st.text_input(
+                "Base Path",
+                value=config['paths']['windows']['base_path'],
+                key="windows_base"
+            )
+            windows_master = st.text_input(
+                "Master Path",
+                value=config['paths']['windows']['master_path'],
+                key="windows_master"
+            )
+
+    # Section 2: FI Module Configuration
+    st.markdown("---")
+    st.markdown("## 2️⃣ FI Module Configuration")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("### Input Files")
+        fi_input_files = config['fi_module']['input_files']
+        for idx, filename in enumerate(fi_input_files):
+            st.text_input(f"Input File {idx+1}", value=filename, key=f"fi_input_{idx}")
+
+    with col2:
+        st.markdown("### Master Files")
+        fi_master_expense = st.text_input("Expense", value=config['fi_module']['master_files']['expense'], key="fi_master_expense")
+        fi_master_revenue = st.text_input("Revenue", value=config['fi_module']['master_files']['revenue'], key="fi_master_revenue")
+        fi_master_other = st.text_input("Other Revenue", value=config['fi_module']['master_files']['other_revenue'], key="fi_master_other")
+        fi_master_net = st.text_input("Revenue Expense Net", value=config['fi_module']['master_files']['revenue_expense_net'], key="fi_master_net")
+
+    with col3:
+        st.markdown("### Output Files")
+        fi_output_excel = st.text_input("Excel Output", value=config['fi_module']['output_files']['excel'], key="fi_output_excel")
+        fi_output_csv_expense = st.text_input("CSV Expense", value=config['fi_module']['output_files']['csv_expense'], key="fi_output_csv_expense")
+        fi_output_csv_revenue = st.text_input("CSV Revenue", value=config['fi_module']['output_files']['csv_revenue'], key="fi_output_csv_revenue")
+
+    # Section 3: ETL Module Configuration
+    st.markdown("---")
+    st.markdown("## 3️⃣ ETL Module Configuration")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("### Master Files")
+        etl_master_product = st.text_input("Product Master", value=config['etl_module']['master_files']['product'], key="etl_master_product")
+        etl_master_gl = st.text_input("GL Code Master", value=config['etl_module']['master_files']['gl_code'], key="etl_master_gl")
+        etl_master_mapping_cc = st.text_input("Mapping CC", value=config['etl_module']['master_files']['mapping_cc'], key="etl_master_mapping_cc")
+        etl_master_mapping_product = st.text_input("Mapping Product", value=config['etl_module']['master_files']['mapping_product'], key="etl_master_mapping_product")
+
+        st.markdown("### Input Patterns")
+        etl_input_main = st.text_area(
+            "Main Files (comma-separated)",
+            value=", ".join(config['etl_module']['input_patterns']['main_files']),
+            key="etl_input_main"
+        )
+        etl_input_adj_monthly = st.text_input("Adj Monthly", value=config['etl_module']['input_patterns']['adj_monthly'], key="etl_input_adj_monthly")
+        etl_input_adj_ytd = st.text_input("Adj YTD", value=config['etl_module']['input_patterns']['adj_ytd'], key="etl_input_adj_ytd")
+
+    with col2:
+        st.markdown("### Output Files")
+        etl_output_concat = st.text_input("Concat File", value=config['etl_module']['output_files']['concat'], key="etl_output_concat")
+        etl_output_mapped_cc = st.text_input("Mapped CC", value=config['etl_module']['output_files']['mapped_cc'], key="etl_output_mapped_cc")
+        etl_output_mapped_product = st.text_input("Mapped Product", value=config['etl_module']['output_files']['mapped_product'], key="etl_output_mapped_product")
+        etl_output_final = st.text_input("Final Report", value=config['etl_module']['output_files']['final_report'], key="etl_output_final")
+        etl_output_error_gl = st.text_input("Error GL", value=config['etl_module']['output_files']['error_gl'], key="etl_output_error_gl")
+        etl_output_error_product = st.text_input("Error Product", value=config['etl_module']['output_files']['error_product'], key="etl_output_error_product")
+
+    # Section 4: Business Rules
+    st.markdown("---")
+    st.markdown("## 4️⃣ Business Rules")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        br_exclude_bg = st.text_input("Exclude Business Group", value=config['etl_module']['business_rules']['exclude_business_group'], key="br_exclude_bg")
+        br_non_telecom = st.text_input("Non-Telecom Service Group", value=config['etl_module']['business_rules']['non_telecom_service_group'], key="br_non_telecom")
+        br_new_adj_bg = st.text_input("New Adj Business Group", value=config['etl_module']['business_rules']['new_adj_business_group'], key="br_new_adj_bg")
+
+    with col2:
+        br_financial_income = st.text_input("Financial Income Name", value=config['etl_module']['business_rules']['financial_income_name'], key="br_financial_income")
+        br_other_revenue = st.text_input("Other Revenue Adj Name", value=config['etl_module']['business_rules']['other_revenue_adj_name'], key="br_other_revenue")
+
+    # Section 5: Reconciliation & Validation
+    st.markdown("---")
+    st.markdown("## 5️⃣ Reconciliation & Validation")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("### Reconciliation")
+        reconcile_enabled = st.checkbox(
+            "Enable Reconciliation",
+            value=config['etl_module']['reconciliation']['enabled'],
+            key="reconcile_enabled"
+        )
+        st.info("ℹ️ Tolerance ถูกกำหนดเป็น 0.0 เสมอ (ไม่สามารถแก้ไขได้)")
+
+    with col2:
+        st.markdown("### Validation")
+        validation_threshold = st.number_input(
+            "Grand Total Diff Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=config['etl_module']['validation']['grand_total_diff_threshold'],
+            step=0.01,
+            format="%.2f",
+            key="validation_threshold"
+        )
+
+    # Section 6: Anomaly Detection
+    st.markdown("---")
+    st.markdown("## 6️⃣ Anomaly Detection")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        anomaly_enabled = st.checkbox(
+            "Enable Anomaly Detection",
+            value=config['etl_module']['anomaly_detection']['enabled'],
+            key="anomaly_enabled"
+        )
+        anomaly_iqr = st.number_input(
+            "IQR Multiplier",
+            min_value=1.0,
+            max_value=3.0,
+            value=config['etl_module']['anomaly_detection']['iqr_multiplier'],
+            step=0.1,
+            format="%.1f",
+            key="anomaly_iqr"
+        )
+
+    with col2:
+        anomaly_min_history = st.number_input(
+            "Min History",
+            min_value=2,
+            max_value=12,
+            value=config['etl_module']['anomaly_detection']['min_history'],
+            step=1,
+            key="anomaly_min_history"
+        )
+        anomaly_rolling_window = st.number_input(
+            "Rolling Window",
+            min_value=3,
+            max_value=12,
+            value=config['etl_module']['anomaly_detection']['rolling_window'],
+            step=1,
+            key="anomaly_rolling_window"
+        )
+
+    with col3:
+        anomaly_historical = st.checkbox(
+            "Enable Historical Highlight",
+            value=config['etl_module']['anomaly_detection']['enable_historical_highlight'],
+            key="anomaly_historical"
+        )
+
+    # Section 7: Special Mappings
+    st.markdown("---")
+    st.markdown("## 7️⃣ Special Mappings")
+
+    with st.expander("🔄 View/Edit Special Mappings (JSON)", expanded=False):
+        special_mappings_json = json.dumps(config['etl_module']['special_mappings'], indent=2, ensure_ascii=False)
+        special_mappings_edited = st.text_area(
+            "Special Mappings (JSON format)",
+            value=special_mappings_json,
+            height=200,
+            key="special_mappings"
+        )
+
+    # Section 8: Logging
+    st.markdown("---")
+    st.markdown("## 8️⃣ Logging Configuration")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        log_level = st.selectbox(
+            "Log Level",
+            options=["DEBUG", "INFO", "WARNING", "ERROR"],
+            index=["DEBUG", "INFO", "WARNING", "ERROR"].index(config['logging']['level']),
+            key="log_level"
+        )
+
+    with col2:
+        log_enable_file = st.checkbox(
+            "Enable File Logging",
+            value=config['logging']['enable_file_logging'],
+            key="log_enable_file"
+        )
+
+    with col3:
+        log_directory = st.text_input(
+            "Log Directory",
+            value=config['logging']['log_directory'],
+            key="log_directory"
+        )
+
+    # Save Button
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    with col2:
+        if st.button("💾 Save All Configuration Changes", use_container_width=True, type="primary"):
+            try:
+                # Update environment
+                config['environment']['name'] = env_name
+                config['environment']['description'] = env_desc
+
+                # Update processing period
+                config['processing_year'] = new_year
+                config['processing_months']['fi_current_month'] = new_fi_month
+                config['processing_months']['etl_end_month'] = new_etl_month
+
+                # Update paths
+                config['paths']['darwin']['base_path'] = darwin_base
+                config['paths']['darwin']['master_path'] = darwin_master
+                config['paths']['linux']['base_path'] = linux_base
+                config['paths']['linux']['master_path'] = linux_master
+                config['paths']['windows']['base_path'] = windows_base
+                config['paths']['windows']['master_path'] = windows_master
+
+                # Update FI module
+                config['fi_module']['master_files']['expense'] = fi_master_expense
+                config['fi_module']['master_files']['revenue'] = fi_master_revenue
+                config['fi_module']['master_files']['other_revenue'] = fi_master_other
+                config['fi_module']['master_files']['revenue_expense_net'] = fi_master_net
+                config['fi_module']['output_files']['excel'] = fi_output_excel
+                config['fi_module']['output_files']['csv_expense'] = fi_output_csv_expense
+                config['fi_module']['output_files']['csv_revenue'] = fi_output_csv_revenue
+
+                # Update ETL module - master files
+                config['etl_module']['master_files']['product'] = etl_master_product
+                config['etl_module']['master_files']['gl_code'] = etl_master_gl
+                config['etl_module']['master_files']['mapping_cc'] = etl_master_mapping_cc
+                config['etl_module']['master_files']['mapping_product'] = etl_master_mapping_product
+
+                # Update ETL module - input patterns
+                config['etl_module']['input_patterns']['main_files'] = [f.strip() for f in etl_input_main.split(',')]
+                config['etl_module']['input_patterns']['adj_monthly'] = etl_input_adj_monthly
+                config['etl_module']['input_patterns']['adj_ytd'] = etl_input_adj_ytd
+
+                # Update ETL module - output files
+                config['etl_module']['output_files']['concat'] = etl_output_concat
+                config['etl_module']['output_files']['mapped_cc'] = etl_output_mapped_cc
+                config['etl_module']['output_files']['mapped_product'] = etl_output_mapped_product
+                config['etl_module']['output_files']['final_report'] = etl_output_final
+                config['etl_module']['output_files']['error_gl'] = etl_output_error_gl
+                config['etl_module']['output_files']['error_product'] = etl_output_error_product
+
+                # Update business rules
+                config['etl_module']['business_rules']['exclude_business_group'] = br_exclude_bg
+                config['etl_module']['business_rules']['non_telecom_service_group'] = br_non_telecom
+                config['etl_module']['business_rules']['new_adj_business_group'] = br_new_adj_bg
+                config['etl_module']['business_rules']['financial_income_name'] = br_financial_income
+                config['etl_module']['business_rules']['other_revenue_adj_name'] = br_other_revenue
+
+                # Update reconciliation & validation
+                config['etl_module']['reconciliation']['enabled'] = reconcile_enabled
+                # Tolerance is always 0.0
+                config['etl_module']['reconciliation']['tolerance'] = 0.0
+                config['etl_module']['validation']['grand_total_diff_threshold'] = validation_threshold
+
+                # Update anomaly detection
+                config['etl_module']['anomaly_detection']['enabled'] = anomaly_enabled
+                config['etl_module']['anomaly_detection']['iqr_multiplier'] = anomaly_iqr
+                config['etl_module']['anomaly_detection']['min_history'] = anomaly_min_history
+                config['etl_module']['anomaly_detection']['rolling_window'] = anomaly_rolling_window
+                config['etl_module']['anomaly_detection']['enable_historical_highlight'] = anomaly_historical
+
+                # Update special mappings
+                try:
+                    special_mappings_parsed = json.loads(special_mappings_edited)
+                    config['etl_module']['special_mappings'] = special_mappings_parsed
+                except json.JSONDecodeError as e:
+                    st.error(f"❌ Special Mappings JSON is invalid: {e}")
+                    return
+
+                # Update logging
+                config['logging']['level'] = log_level
+                config['logging']['enable_file_logging'] = log_enable_file
+                config['logging']['log_directory'] = log_directory
+
+                # Reload paths
+                st.session_state.config_manager._setup_paths()
+
+                # Reload config in system
+                if st.session_state.system:
+                    st.session_state.system.fi_config = st.session_state.config_manager.get_fi_config()
+                    st.session_state.system.etl_config = st.session_state.config_manager.get_etl_config()
+
+                st.success("✅ Configuration updated successfully!")
+                st.balloons()
+
+                if new_fi_month != new_etl_month:
+                    st.warning("⚠️ Warning: FI และ ETL เดือนไม่ตรงกัน - Reconciliation อาจล้มเหลว")
+
+            except Exception as e:
+                st.error(f"❌ Error saving configuration: {e}")
 
 def show_logs():
     """แสดงหน้า Logs"""
