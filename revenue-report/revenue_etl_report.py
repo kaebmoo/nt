@@ -352,7 +352,8 @@ class RevenueETL:
             self.log("=" * 80)
             self.log("❌ Reconciliation ล้มเหลว - หยุดการทำงาน", "ERROR")
             self.log("=" * 80)
-            raise
+            # Re-raise แต่ใช้ raise from None เพื่อลด traceback
+            raise ReconciliationError(str(e), e.reconcile_results) from None
         
         except FileNotFoundError as e:
             self.log(f"❌ ไม่พบไฟล์: {e}", "ERROR")
@@ -1481,10 +1482,11 @@ class RevenueETL:
             try:
                 self.step0_reconcile_revenue()
             except ReconciliationError as e:
-                self.log("\n" + str(e))
-                self.log("\n❌ ETL Pipeline หยุดการทำงาน: Reconciliation Failed")
-                self.log("💡 กรุณาแก้ไขความแตกต่างแล้วรันใหม่")
-                raise
+                # แสดง error message แต่ไม่ print traceback
+                self.log("\n❌ ETL Pipeline หยุดการทำงาน: Reconciliation Failed", "ERROR")
+                self.log("💡 กรุณาตรวจสอบ log file สำหรับรายละเอียด", "INFO")
+                # Return None แทน raise เพื่อลด traceback ซ้ำซ้อน
+                return None, {}
 
             df = self.step2_mapping_cost_center(df)
             df = self.step3_mapping_product(df)
