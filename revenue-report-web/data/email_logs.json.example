@@ -1,0 +1,49 @@
+{
+  "emails": [
+    {
+      "timestamp": "2025-01-15T14:30:00.123456",
+      "to": [
+        "user1@ntplc.co.th"
+      ],
+      "subject": "Your OTP Code - Revenue Report System",
+      "attachments": [],
+      "status": "sent",
+      "error": null
+    },
+    {
+      "timestamp": "2025-01-15T15:00:00.123456",
+      "to": [
+        "user1@ntplc.co.th",
+        "user2@ntplc.co.th"
+      ],
+      "subject": "รายงานรายได้ประจำเดือน ส.ค. 2025",
+      "attachments": [
+        "revenue_report_202508.xlsx"
+      ],
+      "status": "sent",
+      "error": null
+    },
+    {
+      "timestamp": "2025-01-15T15:30:00.123456",
+      "to": [
+        "user3@ntplc.co.th"
+      ],
+      "subject": "Your OTP Code - Revenue Report System",
+      "attachments": [],
+      "status": "dev_mode",
+      "error": null
+    },
+    {
+      "timestamp": "2025-01-15T16:00:00.123456",
+      "to": [
+        "invalid@example.com"
+      ],
+      "subject": "รายงานรายได้ประจำเดือน ก.ย. 2025",
+      "attachments": [
+        "revenue_report_202509.xlsx"
+      ],
+      "status": "failed",
+      "error": "SMTP authentication failed (check username/password)"
+    }
+  ]
+}

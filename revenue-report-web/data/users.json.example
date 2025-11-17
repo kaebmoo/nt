@@ -1,0 +1,31 @@
+{
+  "users": [
+    {
+      "id": "admin-001",
+      "email": "admin@ntplc.co.th",
+      "name": "Admin User",
+      "is_admin": true,
+      "is_active": true,
+      "created_at": "2025-01-01T10:00:00",
+      "last_login": null
+    },
+    {
+      "id": "user-001",
+      "email": "user1@ntplc.co.th",
+      "name": "Regular User 1",
+      "is_admin": false,
+      "is_active": true,
+      "created_at": "2025-01-02T10:00:00",
+      "last_login": "2025-01-15T14:30:00"
+    },
+    {
+      "id": "user-002",
+      "email": "user2@ntplc.co.th",
+      "name": "Regular User 2",
+      "is_admin": false,
+      "is_active": false,
+      "created_at": "2025-01-03T10:00:00",
+      "last_login": null
+    }
+  ]
+}

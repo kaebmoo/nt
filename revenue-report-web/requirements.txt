@@ -1,0 +1,26 @@
+# Revenue Report Distribution System - Requirements
+# Python 3.8+
+
+# Web Framework
+streamlit>=1.32.0
+
+# Data Processing
+pandas>=2.0.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Date/Time handling (built-in datetime is sufficient, but included for completeness)
+
+# Email (built-in smtplib and email modules are used)
+
+# JSON (built-in json module is used)
+
+# File handling (built-in pathlib is used)
+
+# Security (built-in secrets module is used for OTP generation)
+
+# Optional: Development Tools
+# pytest>=7.4.0  # For testing
+# black>=23.0.0  # For code formatting
+# flake8>=6.0.0  # For linting

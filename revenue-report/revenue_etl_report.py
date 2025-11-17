@@ -1590,9 +1590,25 @@ class RevenueETL:
 
         # กำหนดชื่อไฟล์ Excel
         if excel_output_file is None:
+            # กำหนดเดือนที่ใช้ในชื่อไฟล์
+            # 1. ใช้ end_month จาก config (ถ้ามี)
+            # 2. ถ้าไม่มี ใช้เดือนที่มากที่สุดจากข้อมูล
+            if hasattr(self.config, 'end_month') and self.config.end_month:
+                report_month = self.config.end_month
+                self.logger.info(f"ใช้เดือนจาก config: {report_month} (end_month)")
+            else:
+                # หาเดือนล่าสุดจากข้อมูล df_result
+                if 'MONTH' in df_result.columns:
+                    report_month = int(df_result['MONTH'].max())
+                    self.logger.info(f"ใช้เดือนจากข้อมูล: {report_month} (max month)")
+                else:
+                    report_month = 12  # default ถ้าหาไม่เจอ
+                    self.logger.warning(f"ไม่พบ MONTH column, ใช้ค่า default: {report_month}")
+
+            # สร้างชื่อไฟล์แบบ revenue_report_YYYYMM.xlsx
             excel_output_file = os.path.join(
                 self.paths["final_output"],
-                f"revenue_report_{self.config.YEAR}.xlsx"
+                f"revenue_report_{self.config.YEAR}{report_month:02d}.xlsx"
             )
         self.logger.info(f"ไฟล์ Excel ที่จะสร้าง: {excel_output_file}")
 
