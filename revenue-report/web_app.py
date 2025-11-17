@@ -601,19 +601,23 @@ def show_dashboard():
         # Check FI master files
         fi_config = st.session_state.config_manager.get_fi_config()
         master_path = fi_config['paths']['master']
+        master_source = fi_config['paths']['master_source']  # master_path/source
 
         for key, filename in st.session_state.config_manager.config['fi_module']['master_files'].items():
             # Handle files with 'source/' prefix
-            if filename.startswith('source/'):
+            # ถ้ามี '/' ในชื่อไฟล์ แสดงว่าเป็น relative path จาก master_path
+            # ถ้าไม่มี '/' แสดงว่าอยู่ใน master_source (master_path/source/)
+            if '/' in filename:
                 full_path = os.path.join(master_path, filename)
             else:
-                full_path = os.path.join(master_path, filename)
+                full_path = os.path.join(master_source, filename)
 
             file_info = check_file_exists(full_path)
             if file_info['exists']:
                 st.success(f"✅ {key}: {os.path.basename(filename)} ({file_info['size_kb']:.1f} KB)")
             else:
                 st.error(f"❌ {key}: {os.path.basename(filename)} (Not found)")
+                st.caption(f"Expected path: {full_path}")
 
     with col2:
         if get_fi_status() and st.session_state.system and st.session_state.system.fi_output:
@@ -721,9 +725,16 @@ def show_fi_module():
                 
                 # Load summary sheet
                 df_summary = pd.read_excel(excel_path, sheet_name="summary_other")
-                
+
                 st.markdown("### Summary - รายได้/ค่าใช้จ่ายอื่น")
-                st.dataframe(df_summary, width='stretch')
+
+                # Format numbers with comma separator
+                df_display = df_summary.copy()
+                for col in df_display.columns:
+                    if col != 'รายการ' and df_display[col].dtype in ['int64', 'float64']:
+                        df_display[col] = df_display[col].apply(lambda x: f'{x:,.2f}' if pd.notna(x) else '')
+
+                st.dataframe(df_display, use_container_width=True)
                 
                 # Create chart
                 fig = go.Figure()
