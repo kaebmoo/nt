@@ -44,6 +44,8 @@
 ├── 📄 anomaly_reporter.py                # Excel Report Generator
 │
 ├── 📘 README.md                          # คู่มือนี้
+├── 📘 QUICK_START.md                     # เริ่มต้นใช้งานอย่างรวดเร็ว
+├── 📘 CONFIGURATION_GUIDE.md             # คู่มือการตั้งค่า (Flags, Options)
 ├── 📘 MAIN_AUDIT_USAGE_GUIDE.md          # คู่มือการใช้งาน main_audit.py
 ├── 📘 CROSSTAB_CONVERTER_GUIDE.md        # คู่มือการใช้งาน Crosstab Converter
 ├── 📘 DATA_CLEANING_GUIDE.md             # คู่มือการทำความสะอาดข้อมูล
@@ -166,6 +168,8 @@ CROSSTAB_MIN_HISTORY = 3  # ประวัติย้อนหลังขั�
 
 | ไฟล์ | คำอธิบาย |
 |------|----------|
+| [QUICK_START.md](QUICK_START.md) | เริ่มต้นใช้งานอย่างรวดเร็ว (3 ขั้นตอน) |
+| [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | คู่มือการตั้งค่า Flags และ Options |
 | [MAIN_AUDIT_USAGE_GUIDE.md](MAIN_AUDIT_USAGE_GUIDE.md) | คู่มือการใช้งาน main_audit.py ฉบับสมบูรณ์ |
 | [CROSSTAB_CONVERTER_GUIDE.md](CROSSTAB_CONVERTER_GUIDE.md) | คู่มือการแปลง Crosstab → Long Format |
 | [DATA_CLEANING_GUIDE.md](DATA_CLEANING_GUIDE.md) | คู่มือการทำความสะอาดข้อมูลตัวเลข (comma, วงเล็บ) |
@@ -296,6 +300,14 @@ Internal use only - National Telecom (NT)
 ---
 
 ## 🎉 Version History
+
+### v4.1.2 (2025-01-18) - **Configurable Analysis**
+- ⚙️ เพิ่ม **Configuration Flags** สำหรับควบคุมการวิเคราะห์
+  - `RUN_TIME_SERIES_ANALYSIS` - เปิด/ปิด Time Series Analysis
+  - `RUN_PEER_GROUP_ANALYSIS` - เปิด/ปิด Peer Group Analysis (ช่วยประหยัดเวลา)
+- 📘 สร้าง `CONFIGURATION_GUIDE.md` - คู่มือการตั้งค่า
+- 📘 สร้าง `QUICK_START.md` - คู่มือเริ่มต้นใช้งาน
+- 🐛 แก้ไข bug: `mode='auto'` ใน crosstab_converter.py
 
 ### v4.1.1 (2025-01-18) - **Data Cleaning Enhancement**
 - 🧹 เพิ่ม **Accounting Format Support**
