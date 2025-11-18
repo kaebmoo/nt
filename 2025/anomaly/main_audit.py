@@ -10,7 +10,7 @@ from anomaly_reporter import ExcelReporter
 # =============================================================================
 
 # --- Input Mode Selection ---
-INPUT_MODE = 'crosstab'  # 'long' = Long Format (แบบเดิม) | 'crosstab' = Crosstab/Pivot Table (แบบใหม่)
+INPUT_MODE = 'long'  # 'long' = Long Format (แบบเดิม) | 'crosstab' = Crosstab/Pivot Table (แบบใหม่)
 
 # --- For Long Format (แบบเดิม) ---
 INPUT_FILE_LONG = "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource/2025/expense/output/EXPENSE_NT_REPORT_2025.csv"
@@ -37,7 +37,7 @@ RUN_FULL_AUDIT_LOG = True       # บันทึก Audit Log ลง Excel (She
 
 # --- Anomaly Detection Options ---
 RUN_TIME_SERIES_ANALYSIS = True     # Time Series (Rolling Window) - เทียบกับอดีตของตัวเอง
-RUN_PEER_GROUP_ANALYSIS = False     # Peer Group (IsolationForest) - เทียบกับกลุ่มเพื่อน ⚠️ ใช้เวลานาน
+RUN_PEER_GROUP_ANALYSIS = True     # Peer Group (IsolationForest) - เทียบกับกลุ่มเพื่อน ⚠️ ใช้เวลานาน
 
 # Dimension สำหรับ Crosstab Report
 # CROSSTAB_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE"]
@@ -52,7 +52,7 @@ AUDIT_TS_WINDOW = 6
 # Dimension สำหรับ Peer Group
 # AUDIT_PEER_GROUP_BY = ["PRODUCT_KEY", "GL_CODE"]
 AUDIT_PEER_GROUP_BY = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]
-AUDIT_PEER_ITEM_ID  = "COST_CENTER"
+AUDIT_PEER_ITEM_ID  = "COST_CENTER_DEPARTMENT"
 
 # =============================================================================
 
