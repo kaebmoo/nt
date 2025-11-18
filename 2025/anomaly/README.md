@@ -27,8 +27,10 @@
 - **IQR-based Detection** - ตรวจจับค่าผิดปกติ (High/Low Spike)
 
 ✅ **Excel Report:**
-- Crosstab Report พร้อม Highlighting
-- Full Audit Log (Time Series)
+- **Crosstab Report** - แสดงข้อมูล Time Series พร้อม Highlighting
+- **Peer Group Crosstab Report** - แสดงการเปรียบเทียบกับกลุ่มเพื่อน
+- **Full Audit Log (Time Series)** - รายละเอียด anomalies จาก time series
+- **Full Audit Log (Peer)** - รายละเอียด anomalies จาก peer group
 - Color-coded Anomaly Indicators
 
 ---
@@ -47,6 +49,7 @@
 ├── 📘 QUICK_START.md                     # เริ่มต้นใช้งานอย่างรวดเร็ว
 ├── 📘 CONFIGURATION_GUIDE.md             # คู่มือการตั้งค่า (Flags, Options)
 ├── 📘 MAIN_AUDIT_USAGE_GUIDE.md          # คู่มือการใช้งาน main_audit.py
+├── 📘 PEER_CROSSTAB_GUIDE.md             # 🆕 คู่มือ Peer Group Crosstab Report
 ├── 📘 CROSSTAB_CONVERTER_GUIDE.md        # คู่มือการใช้งาน Crosstab Converter
 ├── 📘 DATA_CLEANING_GUIDE.md             # คู่มือการทำความสะอาดข้อมูล
 │
@@ -171,6 +174,7 @@ CROSSTAB_MIN_HISTORY = 3  # ประวัติย้อนหลังขั�
 | [QUICK_START.md](QUICK_START.md) | เริ่มต้นใช้งานอย่างรวดเร็ว (3 ขั้นตอน) |
 | [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) | คู่มือการตั้งค่า Flags และ Options |
 | [MAIN_AUDIT_USAGE_GUIDE.md](MAIN_AUDIT_USAGE_GUIDE.md) | คู่มือการใช้งาน main_audit.py ฉบับสมบูรณ์ |
+| [PEER_CROSSTAB_GUIDE.md](PEER_CROSSTAB_GUIDE.md) | 🆕 คู่มือ Peer Group Crosstab Report |
 | [CROSSTAB_CONVERTER_GUIDE.md](CROSSTAB_CONVERTER_GUIDE.md) | คู่มือการแปลง Crosstab → Long Format |
 | [DATA_CLEANING_GUIDE.md](DATA_CLEANING_GUIDE.md) | คู่มือการทำความสะอาดข้อมูลตัวเลข (comma, วงเล็บ) |
 | [config_example_long_mode.py](config_example_long_mode.py) | ตัวอย่าง config สำหรับ Long Format |
@@ -230,16 +234,30 @@ AUDIT_TS_DIMENSIONS = ["GROUP", "PRODUCT", "REGION"]
 
 ### **Excel Report** (`Expense_Audit_Report.xlsx`)
 
-#### Sheet 1: **Crosstab Report**
-- Pivot table พร้อมสถานะความผิดปกติ
-- Color-coded highlighting:
-  - 🔴 สีแดง = High Spike
-  - 🟡 สีเหลือง = Low Spike
-  - ⚪ สีขาว = Normal
+รายงานจะประกอบด้วยหลาย sheets ตามการตั้งค่า:
 
-#### Sheet 2: **Full_Audit_Log (Time)**
-- รายละเอียด anomalies ทั้งหมด
+#### Sheet 1: **Crosstab_Report** (Time Series)
+- Pivot table แสดงข้อมูลตามเวลา
+- เปรียบเทียบกับประวัติย้อนหลังของตัวเอง
+- Color-coded highlighting:
+  - 🔴 สีแดง = High Spike (ยอดพุ่งสูงผิดปกติ)
+  - 🟡 สีเหลือง = Low Drop (ยอดตกลงต่ำผิดปกติ)
+  - ⚫ สีดำ = Negative Value (ยอดติดลบ)
+
+#### Sheet 2: **Peer_Crosstab_Report** (Peer Group) 🆕
+- Pivot table แสดงการเปรียบเทียบกับกลุ่มเพื่อน
+- แสดง dimensions รวม item ID (เช่น COST_CENTER)
+- Color-coded highlighting:
+  - 🔴 สีแดง = High Outlier (ค่าสูงผิดปกติเทียบกับกลุ่มเพื่อน)
+  - 🟡 สีเหลือง = Low Outlier (ค่าต่ำผิดปกติเทียบกับกลุ่มเพื่อน)
+
+#### Sheet 3: **Full_Audit_Log (Time)**
+- รายละเอียด anomalies ทั้งหมดจาก time series analysis
 - คอลัมน์: DATE, ISSUE_DESC, VALUE, COMPARED_WITH, dimensions
+
+#### Sheet 4: **Full_Audit_Log (Peer)**
+- รายละเอียด anomalies ทั้งหมดจาก peer group analysis
+- คอลัมน์: DATE, ISSUE_DESC, VALUE, COMPARED_WITH, dimensions + item_id
 
 ---
 
@@ -300,6 +318,19 @@ Internal use only - National Telecom (NT)
 ---
 
 ## 🎉 Version History
+
+### v4.2.0 (2025-11-18) - **Peer Group Crosstab Report** 🆕
+- ✨ เพิ่ม **Peer Group Crosstab Report** sheet
+  - สร้าง pivot table จากข้อมูล peer group analysis
+  - แสดง dimensions + item ID (เช่น COST_CENTER)
+  - ทาสี cell ที่เป็น High/Low Outlier vs Peers
+- 🎨 เพิ่ม legend แยกตาม report type
+  - Time Series Crosstab: High/Low Spike, Negative Value
+  - Peer Crosstab: High/Low Outlier vs Peers
+- 🛡️ ปรับปรุงความ robust
+  - ตรวจสอบ dimension columns ก่อนสร้าง anomaly map
+  - จัดการ NaN values ให้สอดคล้องกัน
+  - แสดง warning ที่ชัดเจนเมื่อมีปัญหา
 
 ### v4.1.2 (2025-01-18) - **Configurable Analysis**
 - ⚙️ เพิ่ม **Configuration Flags** สำหรับควบคุมการวิเคราะห์
