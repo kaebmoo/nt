@@ -133,36 +133,29 @@ class FullAuditEngine:
         # ใช้ min_periods=window เพื่อให้แน่ใจว่ามีข้อมูลครบก่อนคำนวณ
         # แต่ให้ยืดหยุ่นเล็กน้อย โดยใช้ max(1, window-1)
         min_periods_safe = max(1, window - 1)
-        
-        grouped = df_calc.groupby('__GRP_ID__', group_keys=False)[target_col]
-        
+
+        # ✅ ใช้ transform() แทน reset_index() เพื่อรับประกันว่า index ตรงกับ df_calc
+        # transform() จะ maintain index ของ original dataframe โดยอัตโนมัติ
+        # และไม่มีความเสี่ยงเรื่อง index misalignment
+
         # คำนวณค่าทางสถิติของ "window เดือนก่อนหน้า" (ไม่รวมเดือนปัจจุบัน)
         # shift(1) จะทำให้ค่า stats ของแถวนี้ มาจาก window เดือนที่แล้ว
-        hist_mean = grouped.rolling(
-            window=window, 
-            min_periods=min_periods_safe
-        ).mean().shift(1).fillna(0).reset_index(0, drop=True)
-        
-        hist_count = grouped.rolling(
-            window=window, 
-            min_periods=min_periods_safe
-        ).count().shift(1).fillna(0).reset_index(0, drop=True)
-        
-        hist_q1 = grouped.rolling(
-            window=window, 
-            min_periods=min_periods_safe
-        ).quantile(0.25).shift(1).fillna(0).reset_index(0, drop=True)
-        
-        hist_q3 = grouped.rolling(
-            window=window, 
-            min_periods=min_periods_safe
-        ).quantile(0.75).shift(1).fillna(0).reset_index(0, drop=True)
-        
-        # เอาค่ากลับไปใส่ DataFrame
-        df_calc['HIST_MEAN'] = hist_mean
-        df_calc['HIST_COUNT'] = hist_count
-        df_calc['HIST_Q1'] = hist_q1
-        df_calc['HIST_Q3'] = hist_q3
+        df_calc['HIST_MEAN'] = df_calc.groupby('__GRP_ID__', group_keys=False)[target_col].transform(
+            lambda x: x.rolling(window=window, min_periods=min_periods_safe).mean().shift(1)
+        ).fillna(0)
+
+        df_calc['HIST_COUNT'] = df_calc.groupby('__GRP_ID__', group_keys=False)[target_col].transform(
+            lambda x: x.rolling(window=window, min_periods=min_periods_safe).count().shift(1)
+        ).fillna(0)
+
+        df_calc['HIST_Q1'] = df_calc.groupby('__GRP_ID__', group_keys=False)[target_col].transform(
+            lambda x: x.rolling(window=window, min_periods=min_periods_safe).quantile(0.25).shift(1)
+        ).fillna(0)
+
+        df_calc['HIST_Q3'] = df_calc.groupby('__GRP_ID__', group_keys=False)[target_col].transform(
+            lambda x: x.rolling(window=window, min_periods=min_periods_safe).quantile(0.75).shift(1)
+        ).fillna(0)
+
         df_calc['HIST_IQR'] = df_calc['HIST_Q3'] - df_calc['HIST_Q1']
         
         # 3. คำนวณ PCT_CHANGE (ป้องกัน division by zero)
