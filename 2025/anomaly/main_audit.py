@@ -13,7 +13,7 @@ from anomaly_reporter import ExcelReporter
 INPUT_MODE = 'long'  # 'long' = Long Format (แบบเดิม) | 'crosstab' = Crosstab/Pivot Table (แบบใหม่)
 
 # --- For Long Format (แบบเดิม) ---
-INPUT_FILE_LONG = "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource/2025/expense/output/EXPENSE_NT_REPORT_2025.csv"
+INPUT_FILE_LONG = "/Users/seal/Library/CloudStorage/OneDrive-Personal/share/Datasource/all/expense/EXPENSE_NT_REPORT_2024.csv"
 
 # --- For Crosstab Format (แบบใหม่) ---
 INPUT_FILE_CROSSTAB = "crosstab_data_example.csv"  # <-- ไฟล์ Crosstab ของคุณ
@@ -24,7 +24,7 @@ CROSSTAB_ID_VARS = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]  # คอลัม�
 CROSSTAB_VALUE_NAME = "EXPENSE_VALUE"   # ชื่อคอลัมน์ค่า
 
 # --- Common Configuration ---
-OUTPUT_FILE = "data/Expense_Audit_Report_20251118.xlsx"
+OUTPUT_FILE = "data/Expense_Audit_Report_2024.xlsx"
 
 COL_YEAR = "YEAR"
 COL_MONTH = "MONTH"
@@ -41,18 +41,18 @@ RUN_PEER_GROUP_ANALYSIS = True     # Peer Group (IsolationForest) - เทีย
 
 # Dimension สำหรับ Crosstab Report
 # CROSSTAB_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE"]
-CROSSTAB_DIMENSIONS = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]
+CROSSTAB_DIMENSIONS = ["GROUP_NAME", "GL_CODE", "GL_NAME"]
 CROSSTAB_MIN_HISTORY = 3
 
 # Dimension สำหรับ Full Audit (Rolling Window)
 # AUDIT_TS_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER"]
-AUDIT_TS_DIMENSIONS = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]
+AUDIT_TS_DIMENSIONS = ["GROUP_NAME", "GL_CODE", "GL_NAME"]
 AUDIT_TS_WINDOW = 6
 
 # Dimension สำหรับ Peer Group
 # AUDIT_PEER_GROUP_BY = ["PRODUCT_KEY", "GL_CODE"]
-AUDIT_PEER_GROUP_BY = ["GROUP_NAME", "GL_CODE", "GL_NAME_NT1"]
-AUDIT_PEER_ITEM_ID  = "COST_CENTER_DEPARTMENT"
+AUDIT_PEER_GROUP_BY = ["GROUP_NAME", "GL_CODE", "GL_NAME"]
+AUDIT_PEER_ITEM_ID  = "COST_CENTER"
 
 # =============================================================================
 
