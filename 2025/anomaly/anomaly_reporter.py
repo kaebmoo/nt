@@ -290,19 +290,30 @@ class ExcelReporter:
         if not df_peer_log.empty:
             print(f"[Reporter]:    Building anomaly map from {len(df_peer_log)} peer group anomalies...")
 
-            for _, row in df_peer_log.iterrows():
-                # สร้าง key จาก dimensions
-                dim_key = tuple(row[dim] for dim in all_dims)
+            # ตรวจสอบว่า df_peer_log มี columns ครบ
+            missing_dims = [dim for dim in all_dims if dim not in df_peer_log.columns]
+            if missing_dims:
+                print(f"[Reporter]:    ⚠ Warning: df_peer_log missing dimensions: {missing_dims}")
+                print(f"[Reporter]:    Available columns: {list(df_peer_log.columns)}")
+                print(f"[Reporter]:    Skipping peer crosstab highlighting.")
+            else:
+                for _, row in df_peer_log.iterrows():
+                    try:
+                        # สร้าง key จาก dimensions (แปลง NaN เป็น 'N/A' ให้ตรงกับ prepare_data)
+                        dim_key = tuple(
+                            'N/A' if pd.isna(row[dim]) else row[dim]
+                            for dim in all_dims
+                        )
 
-                # แปลง date เป็น YYYY-MM format
-                try:
-                    if pd.notna(row[date_col]):
-                        date_str = pd.to_datetime(row[date_col]).strftime('%Y-%m')
-                        anomaly_map[(dim_key, date_str)] = row.get('ISSUE_DESC', 'Peer_Anomaly')
-                except:
-                    pass
+                        # แปลง date เป็น YYYY-MM format
+                        if pd.notna(row[date_col]):
+                            date_str = pd.to_datetime(row[date_col]).strftime('%Y-%m')
+                            anomaly_map[(dim_key, date_str)] = row.get('ISSUE_DESC', 'Peer_Anomaly')
+                    except Exception as e:
+                        # Skip แถวที่มีปัญหา
+                        continue
 
-            print(f"[Reporter]:    ✓ Anomaly map created with {len(anomaly_map)} entries")
+                print(f"[Reporter]:    ✓ Anomaly map created with {len(anomaly_map)} entries")
 
         # 3. เขียน DataFrame ลง Excel
         sheet_name = 'Peer_Crosstab_Report'
@@ -318,8 +329,11 @@ class ExcelReporter:
         for excel_row_idx in range(2, ws.max_row + 1):
             df_row_idx = excel_row_idx - 2  # แปลง Excel row → DataFrame row index
 
-            # ดึงค่า dimensions จากแถวนี้
-            dim_values = tuple(df_report.iloc[df_row_idx][dim] for dim in all_dims)
+            # ดึงค่า dimensions จากแถวนี้ (แปลง NaN เป็น 'N/A' ให้ตรงกับ anomaly_map)
+            dim_values = tuple(
+                'N/A' if pd.isna(df_report.iloc[df_row_idx][dim]) else df_report.iloc[df_row_idx][dim]
+                for dim in all_dims
+            )
 
             for col_name, (col_idx, col_letter) in col_map.items():
                 cell = ws[f"{col_letter}{excel_row_idx}"]
