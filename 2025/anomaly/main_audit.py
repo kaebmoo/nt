@@ -296,12 +296,26 @@ def main():
         
         # [สำคัญ] ส่ง df_ts_log เข้าไปเพื่อช่วยทาสี Cell ในอดีต
         reporter.add_crosstab_sheet(
-            df_report=df_crosstab, 
-            df_anomaly_log=df_ts_log, 
+            df_report=df_crosstab,
+            df_anomaly_log=df_ts_log,
             dimensions=CROSSTAB_DIMENSIONS,
             date_col_name=DATE_COL_NAME,
             date_cols_sorted=crosstab_gen.date_cols_sorted
         )
+
+    # 5. รัน Peer Group Crosstab Report (ถ้ามีข้อมูล Peer Anomaly)
+    if RUN_PEER_GROUP_ANALYSIS and not df_peer_log.empty:
+        print("\n--- (Job 2.5/2) Adding Peer Group Crosstab Report ---")
+        reporter.add_peer_crosstab_sheet(
+            df_clean=df_clean,
+            df_peer_log=df_peer_log,
+            group_dims=AUDIT_PEER_GROUP_BY,
+            item_id_col=AUDIT_PEER_ITEM_ID,
+            target_col=TARGET_COL,
+            date_col=DATE_COL_NAME
+        )
+        print(f"   ✓ Added Peer Group Crosstab sheet")
+
     # เพิ่ม Log ลง Excel (Sheet 2, 3)
     if RUN_FULL_AUDIT_LOG:
         # Time Series Log
