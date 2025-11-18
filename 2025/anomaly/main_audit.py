@@ -32,8 +32,12 @@ TARGET_COL = "EXPENSE_VALUE"
 DATE_COL_NAME = "__date_col__" 
 
 # --- Configs ---
-RUN_CROSSTAB_REPORT = True
-RUN_FULL_AUDIT_LOG = True
+RUN_CROSSTAB_REPORT = True      # สร้าง Crosstab Report (Sheet 1)
+RUN_FULL_AUDIT_LOG = True       # บันทึก Audit Log ลง Excel (Sheet 2, 3)
+
+# --- Anomaly Detection Options ---
+RUN_TIME_SERIES_ANALYSIS = True     # Time Series (Rolling Window) - เทียบกับอดีตของตัวเอง
+RUN_PEER_GROUP_ANALYSIS = False     # Peer Group (IsolationForest) - เทียบกับกลุ่มเพื่อน ⚠️ ใช้เวลานาน
 
 # Dimension สำหรับ Crosstab Report
 # CROSSTAB_DIMENSIONS = ["PRODUCT_KEY", "SUB_PRODUCT_KEY", "GL_CODE"]
@@ -232,40 +236,51 @@ def main():
 
     # 3. รัน Full Audit (Scanning ทุกเดือน)
     # จำเป็นต้องรันก่อน เพื่อเอาข้อมูลไป Highlight ใน Crosstab
-    if RUN_FULL_AUDIT_LOG or RUN_CROSSTAB_REPORT:
+    if RUN_TIME_SERIES_ANALYSIS or RUN_PEER_GROUP_ANALYSIS:
         print("\n--- (Job 1/2) Running Full Audit Engine (All Months) ---")
         full_audit_gen = FullAuditEngine(df_clean.copy())
-        
-        # 3.1 Time Series (Rolling Window)
-        df_ts_log = full_audit_gen.audit_time_series_all_months(
-            target_col=TARGET_COL,
-            date_col=DATE_COL_NAME,
-            dimensions=AUDIT_TS_DIMENSIONS,
-            window=AUDIT_TS_WINDOW
-        )
-        # ✅ กรองเฉพาะปัญหาสำคัญ
-        if not df_ts_log.empty:
-            # เอาเฉพาะ Critical
-            df_ts_log = df_ts_log[
-                df_ts_log['ISSUE_DESC'].isin([
-                    'High_Spike', 'Low_Spike', 'Negative_Value'
-                ])
-            ].copy()
-            print(f"   ✓ Filtered to {len(df_ts_log)} critical anomalies for highlighting")
 
-        # 🔍 DEBUG: แสดง anomalies ทั้งหมด
-        '''print("\n📊 DEBUG: Anomaly Details:")
-        for idx, row in df_ts_log.iterrows():
-            print(f"  - {row[DATE_COL_NAME].strftime('%Y-%m')}: "
-                f"{row['PRODUCT_KEY']} = {row[TARGET_COL]:,.2f} "
-                f"[{row['ISSUE_DESC']}]")'''
+        # 3.1 Time Series (Rolling Window)
+        if RUN_TIME_SERIES_ANALYSIS:
+            print("   🔄 Running Time Series Analysis (Rolling Window)...")
+            df_ts_log = full_audit_gen.audit_time_series_all_months(
+                target_col=TARGET_COL,
+                date_col=DATE_COL_NAME,
+                dimensions=AUDIT_TS_DIMENSIONS,
+                window=AUDIT_TS_WINDOW
+            )
+            # ✅ กรองเฉพาะปัญหาสำคัญ
+            if not df_ts_log.empty:
+                # เอาเฉพาะ Critical
+                df_ts_log = df_ts_log[
+                    df_ts_log['ISSUE_DESC'].isin([
+                        'High_Spike', 'Low_Spike', 'Negative_Value'
+                    ])
+                ].copy()
+                print(f"   ✓ Time Series: Found {len(df_ts_log)} critical anomalies")
+            else:
+                print(f"   ✓ Time Series: No anomalies detected")
+        else:
+            print("   ⏭️  Time Series Analysis: Skipped (RUN_TIME_SERIES_ANALYSIS = False)")
+
         # 3.2 Peer Group (IsolationForest)
-        # df_peer_log = full_audit_gen.audit_peer_group_all_months(
-        #     target_col=TARGET_COL,
-        #     date_col=DATE_COL_NAME,
-        #     group_dims=AUDIT_PEER_GROUP_BY,
-        #     item_id_col=AUDIT_PEER_ITEM_ID
-        # )
+        if RUN_PEER_GROUP_ANALYSIS:
+            print("   🔄 Running Peer Group Analysis (IsolationForest)...")
+            print("   ⚠️  This may take a while for large datasets...")
+            df_peer_log = full_audit_gen.audit_peer_group_all_months(
+                target_col=TARGET_COL,
+                date_col=DATE_COL_NAME,
+                group_dims=AUDIT_PEER_GROUP_BY,
+                item_id_col=AUDIT_PEER_ITEM_ID
+            )
+            if not df_peer_log.empty:
+                print(f"   ✓ Peer Group: Found {len(df_peer_log)} anomalies")
+            else:
+                print(f"   ✓ Peer Group: No anomalies detected")
+        else:
+            print("   ⏭️  Peer Group Analysis: Skipped (RUN_PEER_GROUP_ANALYSIS = False)")
+    else:
+        print("\n--- Anomaly Detection: Skipped (All analysis disabled) ---")
         
 
     # 4. รัน Crosstab Report (Sheet 1)
@@ -289,10 +304,17 @@ def main():
         )
     # เพิ่ม Log ลง Excel (Sheet 2, 3)
     if RUN_FULL_AUDIT_LOG:
-        reporter.add_audit_log_sheet(df_ts_log, "Full_Audit_Log (Time)",
-            cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_TS_DIMENSIONS)
-        # reporter.add_audit_log_sheet(df_peer_log, "Full_Audit_Log (Peer)",
-        #     cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_PEER_GROUP_BY + [AUDIT_PEER_ITEM_ID])
+        # Time Series Log
+        if RUN_TIME_SERIES_ANALYSIS and not df_ts_log.empty:
+            reporter.add_audit_log_sheet(df_ts_log, "Full_Audit_Log (Time)",
+                cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_TS_DIMENSIONS)
+            print(f"   ✓ Added Time Series Log sheet ({len(df_ts_log)} rows)")
+
+        # Peer Group Log
+        if RUN_PEER_GROUP_ANALYSIS and not df_peer_log.empty:
+            reporter.add_audit_log_sheet(df_peer_log, "Full_Audit_Log (Peer)",
+                cols_to_show=[DATE_COL_NAME, 'ISSUE_DESC', TARGET_COL, 'COMPARED_WITH'] + AUDIT_PEER_GROUP_BY + [AUDIT_PEER_ITEM_ID])
+            print(f"   ✓ Added Peer Group Log sheet ({len(df_peer_log)} rows)")
 
     # 5. Save Final Report
     reporter.save()
