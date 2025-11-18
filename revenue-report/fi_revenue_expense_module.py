@@ -1,3 +1,4 @@
+# revenue-report/fi_revenue_expense_module.py
 """
 FI Revenue Expense Module
 =========================
@@ -252,6 +253,31 @@ class FIRevenueExpenseProcessor:
                 'VALUE': 'sum',
                 'VALUE_YTD': 'sum'
             }).reset_index()
+
+            # จุดนี้ต้องแยก SUB_GROUP 
+            # รายได้เงินปันผล
+            # ดอกเบี้ยรับ 
+            # หนี้สูญได้รับคืน
+            # รายได้จากการรับบริจาคสินทรัพย์
+            # รายได้อื่น-อื่น
+            # ออกไปรอเป็นรายได้อื่น โดยไม่ต้องทำอะไร
+            # เอาไปรวมในขั้นสุดท้่าย
+
+            # แล้วที่เหลือถึงเอาไปคำนวณหา R_OTHER_NET กับ R_OTHER_E
+            # [EDIT] START: Logic from Script 2 (Separation)
+            # จุดนี้ต้องแยก SUB_GROUP 
+            self.logger.info("  → Separating specific SUB_GROUPs...")
+            REVENUE_OTHER_SUB_GROUPS_TO_SEPARATE = ['รายได้เงินปันผล', 'ดอกเบี้ยรับ', 'หนี้สูญได้รับคืน', 'รายได้จากการรับบริจาคสินทรัพย์', 'รายได้อื่น-อื่น']
+            data_r_other_separated = data_R_OTHER[data_R_OTHER['SUB_GROUP'].isin(REVENUE_OTHER_SUB_GROUPS_TO_SEPARATE)].copy()
+            data_R_OTHER = data_R_OTHER[~data_R_OTHER['SUB_GROUP'].isin(REVENUE_OTHER_SUB_GROUPS_TO_SEPARATE)].copy()
+            self.logger.success(f"✓ แยกข้อมูล R_OTHER_separated: {len(data_r_other_separated)} รายการ")
+            
+            # data_r_other_separated ต้องแยก เดือน กับ สะสม ด้วย แล้ว group by GROUP
+            # เพื่อเอาไป รวมกับ r_other_net_month และ r_other_net_ytd
+            r_other_separated_month = data_r_other_separated['VALUE'].sum()
+            r_other_separated_ytd = data_r_other_separated['VALUE_YTD'].sum()
+            self.logger.success(f"R_OTHER_separated (รวม): เดือน = {r_other_separated_month:,.2f}, สะสม = {r_other_separated_ytd:,.2f}")
+            # [EDIT] END: Logic from Script 2 (Separation)
             
             # --- Step 7: แยก R_OTHER_NET และ R_OTHER_E (แยกระดับคอลัมน์) ---
             self.logger.info("\n--- Step 7: แยก R_OTHER_NET และ R_OTHER_E (แยกระดับคอลัมน์) ---")
@@ -277,20 +303,54 @@ class FIRevenueExpenseProcessor:
             self.logger.info(f"  เดือน: {r_other_e_month:,.2f}")
             self.logger.info(f"  สะสม: {r_other_e_ytd:,.2f}")
 
-            # --- Step 8: สร้างผลลัพธ์สุดท้าย ---
-            self.logger.info("\n--- Step 8: สรุปผลลัพธ์สุดท้าย ---")
+            # --- Step 8: สร้าง E_OTHER และ E_OTHER_NET (Logic from script 2) ---
+            # This step was missing from the original Program 1 logic
+            self.logger.info("\n--- Step 8: สร้าง E_OTHER (ค่าใช้จ่ายอื่น จาก RE_OTHER) ---")
+            data_E_OTHER = data_RE_OTHER[data_RE_OTHER['GROUP'] == 'ค่าใช้จ่ายอื่น'].copy()
+            self.logger.success(f"✓ E_OTHER (GROUP = ค่าใช้จ่ายอื่น): {len(data_E_OTHER)} รายการ")
+            self.logger.debug(str(data_E_OTHER.sum(numeric_only=True)))
+
+            # รวม E_OTHER (จาก master_rev_exp_net) กับ R_OTHER_E (จากรายได้ติดลบ)
+            # This is the crucial fix
+            self.logger.info("  → รวม E_OTHER (จาก Master) + R_OTHER_E (จากรายได้ติดลบ)...")
+            e_other_net_month = data_E_OTHER['VALUE'].sum() + r_other_e_month
+            e_other_net_ytd = data_E_OTHER['VALUE_YTD'].sum() + r_other_e_ytd
+            
+            self.logger.info(f"  E_OTHER (เดือน): {data_E_OTHER['VALUE'].sum():,.2f}, R_OTHER_E (เดือน): {r_other_e_month:,.2f}")
+            self.logger.info(f"  E_OTHER_NET (เดือน, ก่อนคูณ -1): {e_other_net_month:,.2f}")
+
+            # คูณ -1 
+            self.logger.info("  → กำลังคูณ -1...")
+            e_other_net_month = e_other_net_month * -1
+            e_other_net_ytd = e_other_net_ytd * -1
+            self.logger.success(f"✓ E_OTHER_NET (ค่าใช้จ่ายอื่นสุทธิ, หลังคูณ -1): เดือน = {e_other_net_month:,.2f}")
+
+            # --- Step 9: สร้างผลลัพธ์สุดท้าย ---
+            self.logger.info("\n--- Step 9: สรุปผลลัพธ์สุดท้าย ---")
             
             # ผลตอบแทนทางการเงิน (จาก F)
             financial_month = f_month
             financial_ytd = f_ytd
             
-            # รายได้อื่น (จาก R_OTHER_NET)
-            other_income_month = r_other_net_month
-            other_income_ytd = r_other_net_ytd
+            # [EDIT] START: Logic from Script 2 (Re-combination)
+            # เอา r_other_separated_month รวมกับ r_other_net_month 
+            self.logger.info("  → รวม R_OTHER_NET (บวก) + R_OTHER_separated (ที่แยกไว้)...")
+            self.logger.info(f"  R_OTHER_NET (เดือน): {r_other_net_month:,.2f}, R_OTHER_separated (เดือน): {r_other_separated_month:,.2f}")
             
-            # ค่าใช้จ่ายอื่น (จาก R_OTHER_E)
-            other_expense_month = r_other_e_month
-            other_expense_ytd = r_other_e_ytd
+            # [FIX] ใช้ค่าที่คำนวณเสร็จแล้วนี้เลย
+            other_income_month = r_other_net_month + r_other_separated_month
+            other_income_ytd = r_other_net_ytd + r_other_separated_ytd
+            
+            self.logger.success(f"✓ รายได้อื่นสุทธิ (รวม): เดือน = {other_income_month:,.2f}")
+            # [EDIT] END: Logic from Script 2 (Re-combination)
+
+            # [FIX] ลบบรรทัดเดิมที่เขียนทับค่าทิ้งไป
+            # other_income_month = r_other_net_month
+            # other_income_ytd = r_other_net_ytd
+            
+            # [FIX] ค่าใช้จ่ายอื่น ต้องมาจาก Step 8 (e_other_net_month)
+            other_expense_month = e_other_net_month
+            other_expense_ytd = e_other_net_ytd
             
             # สร้าง Summary DataFrame
             summary_data = {
