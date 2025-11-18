@@ -5,6 +5,8 @@ scikit-learn>=1.3.0
 
 # Time Series Forecasting
 prophet>=1.1.5
+cmdstanpy>=1.2.0
+polars<0.20.0  # Fix compatibility issue with cmdstanpy
 statsmodels>=0.14.0
 pmdarima>=2.0.3
 
