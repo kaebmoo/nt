@@ -117,32 +117,45 @@ class ExcelReporter:
         print(f"[Reporter]:    ✓ Found {len(anomaly_map)} anomalies across all cells")
         return anomaly_map
 
-    def _add_legend(self, ws):
-        """สร้างตารางคำอธิบายสี (Legend) ต่อท้ายข้อมูล"""
+    def _add_legend(self, ws, legend_type='default'):
+        """
+        สร้างตารางคำอธิบายสี (Legend) ต่อท้ายข้อมูล
+
+        Parameters:
+        - legend_type: 'default' สำหรับ time series crosstab, 'peer' สำหรับ peer group crosstab
+        """
         start_row = ws.max_row + 4
-        
+
         cell_header = ws.cell(row=start_row, column=3, value="คำอธิบายความหมายสี (Color Legend)")
         cell_header.font = self.font_bold
-        
-        legend_data = [
-            ("High_Spike",      "ยอดพุ่งสูงผิดปกติ (High Spike)"),
-            ("Low_Spike",       "ยอดตกลงต่ำผิดปกติ (Low Drop)"),
-            ("Negative_Value",  "ยอดติดลบ")
-        ]
+
+        if legend_type == 'peer':
+            # Legend สำหรับ Peer Group Crosstab
+            legend_data = [
+                ("High_Spike",      "ค่าสูงผิดปกติเทียบกับกลุ่มเพื่อน (High Outlier vs Peers)"),
+                ("Low_Spike",       "ค่าต่ำผิดปกติเทียบกับกลุ่มเพื่อน (Low Outlier vs Peers)")
+            ]
+        else:
+            # Legend สำหรับ Time Series Crosstab (default)
+            legend_data = [
+                ("High_Spike",      "ยอดพุ่งสูงผิดปกติ (High Spike)"),
+                ("Low_Spike",       "ยอดตกลงต่ำผิดปกติ (Low Drop)"),
+                ("Negative_Value",  "ยอดติดลบ")
+            ]
 
         for i, (key, desc) in enumerate(legend_data):
             r = start_row + 1 + i
-            
+
             c_color = ws.cell(row=r, column=3, value="     ")
             if key in self.styles:
                 c_color.fill = self.styles[key]
-                if key == "Negative_Value": 
+                if key == "Negative_Value":
                     c_color.font = self.font_negative
-            
+
             c_desc = ws.cell(row=r, column=4, value=desc)
             c_desc.alignment = Alignment(horizontal='left')
 
-        print(f"[Reporter]:    ✓ Added Color Legend at row {start_row}")
+        print(f"[Reporter]:    ✓ Added Color Legend ({legend_type}) at row {start_row}")
 
     def add_crosstab_sheet(self, df_report, df_anomaly_log, dimensions, date_col_name, date_cols_sorted):
         """เพิ่ม Crosstab Sheet และทาสีตาม anomaly ที่คำนวณจากข้อมูล Crosstab โดยตรง"""
@@ -371,8 +384,8 @@ class ExcelReporter:
         # 6. Freeze panes
         ws.freeze_panes = f'{get_column_letter(len(all_dims) + 1)}2'
 
-        # 7. เพิ่ม Legend
-        self._add_legend(ws)
+        # 7. เพิ่ม Legend สำหรับ Peer Group
+        self._add_legend(ws, legend_type='peer')
 
         print(f"[Reporter]:    ✓ Peer Group Crosstab sheet created with {len(anomaly_map)} highlighted cells")
 
