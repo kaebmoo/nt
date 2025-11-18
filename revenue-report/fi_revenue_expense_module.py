@@ -3,7 +3,7 @@
 FI Revenue Expense Module
 =========================
 Module สำหรับประมวลผลข้อมูลงบการเงิน (Financial Income Statement)
-จัดการข้อมูล Revenue และ Expense จากระบบ GL
+จัดการข้อมูล Revenue และ Expense เพื่อ ทำรายได้อื่นสุทธิ ค่าใช้จ่ายอื่นสุทธิ และผลตอบแทนทางการเงิน
 
 Author: Revenue ETL System
 Version: 2.0.0 (Modularized)
