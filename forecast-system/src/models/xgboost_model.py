@@ -87,6 +87,9 @@ class XGBoostModel(BaseForecastModel):
         self.last_features = df_features.copy()
 
         # Initialize and fit XGBoost
+        # In XGBoost 3.x, early stopping is done via callbacks
+        from xgboost.callback import EarlyStopping
+
         self.model = xgb.XGBRegressor(
             n_estimators=self.n_estimators,
             learning_rate=self.learning_rate,
@@ -94,12 +97,12 @@ class XGBoostModel(BaseForecastModel):
             subsample=self.subsample,
             colsample_bytree=self.colsample_bytree,
             objective='reg:squarederror',
-            random_state=42
+            random_state=42,
+            callbacks=[EarlyStopping(rounds=50)]
         )
 
         self.model.fit(X, y,
                        eval_set=[(X, y)],
-                       early_stopping_rounds=50,
                        verbose=False)
 
         self.is_fitted = True

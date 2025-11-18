@@ -11,20 +11,20 @@ source venv/bin/activate
 # Uninstall problematic packages
 echo ""
 echo "Step 1: Removing conflicting packages..."
-pip uninstall -y polars cmdstanpy prophet
+pip3 uninstall -y polars cmdstanpy prophet
 
 # Install compatible versions
 echo ""
 echo "Step 2: Installing compatible versions..."
-pip install "polars<0.20.0"
-pip install "cmdstanpy>=1.2.0"
-pip install "prophet>=1.1.5"
+pip3 install "polars>=1.0.0"
+pip3 install "cmdstanpy>=1.2.0"
+pip3 install "prophet>=1.1.5"
 
 # Install other requirements
 echo ""
 echo "Step 3: Installing remaining requirements..."
 cd forecast-system
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 
 echo ""
 echo "======================================"
