@@ -150,8 +150,8 @@ if forecast_type == "Revenue":
         with col2:
             model_type = st.selectbox(
                 "Model Type",
-                ["prophet", "sarimax", "xgboost", "holt_winters", "ensemble"],
-                help="Select forecasting model"
+                ["sarimax", "xgboost", "holt_winters", "prophet", "ensemble"],
+                help="Select forecasting model (SARIMAX recommended if Prophet has issues)"
             )
 
         with col3:
@@ -273,9 +273,34 @@ if forecast_type == "Revenue":
                         }))
 
                 except Exception as e:
-                    st.error(f"❌ Error during forecasting: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
+                    error_msg = str(e)
+
+                    # Check for Prophet/polars compatibility error
+                    if "schema_overrides" in error_msg or "cmdstanpy" in error_msg:
+                        st.error("❌ Prophet Model Error: Dependency conflict detected")
+                        st.warning("""
+                        **Prophet ต้องการ polars เวอร์ชันเก่า**
+
+                        วิธีแก้:
+
+                        **Option 1: แก้ dependency (แนะนำ)**
+                        ```bash
+                        pip uninstall -y polars cmdstanpy prophet
+                        pip install "polars<0.20.0"
+                        pip install "cmdstanpy>=1.2.0"
+                        pip install "prophet>=1.1.5"
+                        ```
+
+                        **Option 2: ใช้ Model อื่นแทน (ง่ายกว่า)**
+                        - เลือก **SARIMAX** หรือ **XGBoost** จาก dropdown ด้านบน
+                        - Model เหล่านี้ใช้งานได้ปกติ ไม่ต้องแก้อะไร
+                        """)
+                    else:
+                        st.error(f"❌ Error during forecasting: {e}")
+
+                    with st.expander("📋 Full Error Details"):
+                        import traceback
+                        st.code(traceback.format_exc())
 
 elif forecast_type == "Expense":
     st.header("💸 Expense Forecasting")
@@ -388,7 +413,28 @@ elif forecast_type == "Expense":
                         st.dataframe(result.forecast_df)
 
                 except Exception as e:
-                    st.error(f"❌ Error: {e}")
+                    error_msg = str(e)
+
+                    # Check for Prophet/polars compatibility error
+                    if "schema_overrides" in error_msg or "cmdstanpy" in error_msg:
+                        st.error("❌ Prophet Model Error: Dependency conflict detected")
+                        st.warning("""
+                        **Prophet ต้องการ polars เวอร์ชันเก่า**
+
+                        วิธีแก้:
+                        ```bash
+                        pip uninstall -y polars cmdstanpy prophet
+                        pip install "polars<0.20.0"
+                        pip install "cmdstanpy>=1.2.0"
+                        pip install "prophet>=1.1.5"
+                        ```
+                        """)
+                    else:
+                        st.error(f"❌ Error: {e}")
+
+                    with st.expander("📋 Full Error Details"):
+                        import traceback
+                        st.code(traceback.format_exc())
 
 else:  # Model Comparison
     st.header("🔍 Model Comparison")
