@@ -1,3 +1,6 @@
+# 2025/anomaly/AuditDetector.py
+# ตรวจจับความผิดปกติแบบ Full Audit (Time Series + Peer Group)
+# Example Code
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest
