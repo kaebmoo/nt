@@ -178,7 +178,8 @@ def load_data():
         )
 
         try:
-            converter.convert(
+            # ✅ รับ DataFrame โดยตรงจาก converter.convert() (ไม่ต้องเขียน/อ่านไฟล์)
+            df = converter.convert(
                 sheet_name=CROSSTAB_SHEET_NAME,
                 skiprows=CROSSTAB_SKIPROWS,
                 id_vars=CROSSTAB_ID_VARS,
@@ -186,12 +187,15 @@ def load_data():
                 mode=CROSSTAB_MODE
             )
 
-            # อ่านไฟล์ที่แปลงแล้ว
-            df = pd.read_csv(temp_output)
             print(f"   ✓ Converted successfully: {len(df):,} rows")
 
-            # ลบไฟล์ temp (optional - comment out ถ้าต้องการเก็บไว้ดู)
-            # os.remove(temp_output)
+            # ลบไฟล์ temp ที่ converter สร้างไว้ (optional)
+            if os.path.exists(temp_output):
+                try:
+                    os.remove(temp_output)
+                    print(f"   ✓ Removed temporary file: {temp_output}")
+                except:
+                    pass  # ไม่สำคัญถ้าลบไม่ได้
 
             return df
 
