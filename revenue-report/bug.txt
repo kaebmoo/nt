@@ -1,0 +1,144 @@
+  🔍 ปัญหา:
+
+  - ไฟล์ master อยู่ที่: /home/seal/nt/master/ (ไม่มี subdirectory)
+  - แต่ config ตั้งค่า: "master_subpath": "source"
+  - โปรแกรมเลยไปหาที่: /home/seal/nt/master/source/ ❌
+
+  ---
+  ✅ วิธีแก้:
+
+  แก้ไข config.json ให้ master_subpath เป็น empty string:
+
+  "fi_module": {
+    "description": "FI Revenue Expense Processing Configuration",
+    "input_subpath": "fi",
+    "output_subpath": "fi/output",
+    "master_subpath": "",           ← เปลี่ยนจาก "source" เป็น ""
+    ...
+  }
+
+  คุณสามารถแก้ไขผ่าน Web UI ได้เลยครับ:
+
+  📝 ขั้นตอน:
+
+  1. ไปที่ ETL Admin → Configuration tab
+  2. ไม่มีช่องให้แก้ master_subpath ตรงๆ (เพราะไม่ได้ expose ใน UI)
+  3. วิธีแก้ง่ายๆ: แก้ไฟล์โดยตรงบน server:
+
+  cd ~/nt/revenue-report
+  nano config.json
+
+  # หา "master_subpath": "source" แล้วเปลี่ยนเป็น
+  "master_subpath": "",
+
+  # Save และออกจาก nano (Ctrl+X, Y, Enter)
+
+  4. Reload web app:
+    - ไปที่ Sidebar → กด "📂 Load Configuration"
+    - หรือ Restart Streamlit app
+
+  ---
+  🚀 ทางเลือกที่ 2: ย้ายไฟล์ให้ตรงกับ config
+
+  ถ้าไม่อยากแก้ config สามารถสร้างโฟลเดอร์และย้ายไฟล์:
+
+  cd ~/nt/master
+  mkdir source
+  mv *.csv source/
+
+  แต่วิธีนี้ไม่แนะนำ เพราะคุณมีไฟล์ master หลายเวอร์ชัน การเก็บไว้ที่ master root จะดูง่ายกว่า
+
+  ---
+  ลองแก้ตามวิธีแรกแล้วบอกผลได้เลยครับ! 😊
+
+> master_subpath="source" นี่มันใช้ตอนไหนบ้าง แล้ว ค่า ที่ตั้ง "source/MASTER..." มันไม่ error เหรอ
+
+⏺ คำถามดีมากครับ! ให้ผมตรวจสอบ code ให้ชัดเจน:
+
+⏺ Read(~/Documents/GitHub/nt/revenue-report/config_manager.py)
+  ⎿  Read 25 lines
+
+⏺ Search(pattern: "master_source|master_subpath", path: "~/Documents/GitHub/nt/revenue-report", output_mode: "content")
+  ⎿  Found 20 lines (ctrl+o to expand)
+
+⏺ ดีครับ! ผมจะอธิบายให้ชัดเจน:
+
+⏺ Read(etl_admin_tab.py)
+  ⎿  Read 25 lines
+
+⏺ เจอแล้วครับ! ให้ผมอธิบาย:
+
+⏺ Read(~/Documents/GitHub/nt/revenue-report/fi_revenue_expense_module.py)
+  ⎿  Read 80 lines
+
+⏺ พบแล้วครับ! 🎯 ให้ผมอธิบาย:
+
+  📁 ความแตกต่างของการใช้ master_subpath:
+
+  1️⃣ ไฟล์ที่ไม่มี "source/" prefix (expense, revenue):
+
+  # fi_revenue_expense_module.py line 82-85
+  master_expense_file = os.path.join(
+      self.paths['master_source'],  # /home/seal/nt/master/source  ← ใช้ master_source
+      self.config['master_files']['expense']  # "MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv"
+  )
+  # ผลลัพธ์: /home/seal/nt/master/source/MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv
+
+  ✅ ใช้ master_source = master_path + master_subpath (/home/seal/nt/master + source)
+
+  ---
+  2️⃣ ไฟล์ที่มี "source/" prefix (other_revenue, revenue_expense_net):
+
+  # fi_revenue_expense_module.py line 144-147
+  master_other_rev_file = os.path.join(
+      self.paths['master'],  # /home/seal/nt/master  ← ใช้ master (ไม่ใช่ master_source!)
+      self.config['master_files']['other_revenue']  # "source/MASTER_OTHER_REVENUE_NET.csv"
+  )
+  # ผลลัพธ์: /home/seal/nt/master/source/MASTER_OTHER_REVENUE_NET.csv
+
+  ✅ ใช้ master = master_path เฉพาะ แล้วให้ filename กำหนด subdirectory เอง
+
+  ---
+  🤔 ทำไมถึงมี 2 รูปแบบ?
+
+  เพื่อให้ flexible:
+  - แบบที่ 1: ไฟล์ส่วนใหญ่อยู่ใน default subdirectory (master/source/)
+  - แบบที่ 2: บางไฟล์อาจอยู่ที่อื่น (เช่น master/clean/, master/backup/)
+
+  ---
+  ⚠️ ปัญหาตอนนี้:
+
+  เนื่องจาก master_subpath = "source" แต่ไฟล์อยู่ที่ /home/seal/nt/master/ โดยตรง:
+
+  | ไฟล์                | Path ที่ต้องการ                        | Path ที่โปรแกรมหา                             | ผลลัพธ์     |
+  |---------------------|----------------------------------------|-----------------------------------------------|-------------|
+  | expense             | /home/seal/nt/master/MASTER_EXPENSE... | /home/seal/nt/master/source/MASTER_EXPENSE... | ❌ Not found |
+  | revenue             | /home/seal/nt/master/MASTER_REVENUE... | /home/seal/nt/master/source/MASTER_REVENUE... | ❌ Not found |
+  | other_revenue       | /home/seal/nt/master/MASTER_OTHER...   | /home/seal/nt/master/source/MASTER_OTHER...   | ❌ Not found |
+  | revenue_expense_net | /home/seal/nt/master/master_revenue... | /home/seal/nt/master/source/master_revenue... | ❌ Not found |
+
+  ---
+  ✅ วิธีแก้ที่ถูกต้อง:
+
+  เปลี่ยน master_subpath จาก "source" เป็น "" (empty string):
+
+  cd ~/nt/revenue-report
+  nano config.json
+
+  # หาบรรทัดนี้:
+  "master_subpath": "source",
+
+  # เปลี่ยนเป็น:
+  "master_subpath": "",
+
+  # Save (Ctrl+X, Y, Enter)
+
+  แล้วแก้ไข master_files ให้เป็น:
+  "master_files": {
+    "expense": "MASTER_EXPENSE_GL_CODE_NT1_NT_20251028.csv",
+    "revenue": "MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv",
+    "other_revenue": "MASTER_OTHER_REVENUE_NET.csv",
+    "revenue_expense_net": "master_revenue_expense_net.csv"
+  }
+
+  (ลบ "source/" prefix ออกทั้งหมด)
