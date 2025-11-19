@@ -2216,8 +2216,17 @@ class RevenueETL:
         if not anomaly_results:
             print("  ไม่มีผลลัพธ์การตรวจสอบ Anomaly (อาจมีข้อมูลไม่พอ)")
         else:
-            for level_name, df_anomaly in anomaly_results.items():
-                status_counts = df_anomaly['ANOMALY_STATUS'].value_counts()
+            for level_name, level_data in anomaly_results.items():
+                # เข้าถึง dataframe และ status_counts จาก dict structure
+                df_anomaly = level_data.get('dataframe')
+                if df_anomaly is None:
+                    continue
+
+                # ใช้ status_counts ที่คำนวณไว้แล้ว
+                status_counts = level_data.get('status_counts', {})
+                if not status_counts:
+                    status_counts = df_anomaly['ANOMALY_STATUS'].value_counts().to_dict()
+
                 total = len(df_anomaly)
                 normal = status_counts.get('Normal', 0) + status_counts.get('Not_Enough_Data', 0)
                 anomalies = total - normal
