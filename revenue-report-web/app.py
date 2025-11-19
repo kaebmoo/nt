@@ -53,7 +53,9 @@ email_sender = get_email_sender()
 
 # ========== Session State ==========
 def init_session_state():
-    """Initialize session state"""
+    """Initialize session state - ต้อง initialize ทุกตัวแปรที่นี่เพื่อป้องกัน error เมื่อผ่าน nginx"""
+
+    # Authentication & User
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
     if 'user_email' not in st.session_state:
@@ -64,6 +66,18 @@ def init_session_state():
         st.session_state.otp_sent = False
     if 'otp_expires_at' not in st.session_state:
         st.session_state.otp_expires_at = None
+
+    # ETL System (สำหรับ ETL Admin Tab)
+    if 'etl_config_manager' not in st.session_state:
+        st.session_state.etl_config_manager = None
+    if 'etl_system' not in st.session_state:
+        st.session_state.etl_system = None
+    if 'etl_processing_status' not in st.session_state:
+        st.session_state.etl_processing_status = None
+    if 'etl_fi_completed' not in st.session_state:
+        st.session_state.etl_fi_completed = False
+    if 'etl_etl_completed' not in st.session_state:
+        st.session_state.etl_etl_completed = False
 
 
 def logout():

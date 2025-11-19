@@ -63,13 +63,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'etl_config_manager' not in st.session_state:
-    st.session_state.etl_config_manager = None
-    st.session_state.etl_system = None
-    st.session_state.etl_processing_status = None
-    st.session_state.etl_fi_completed = False
-    st.session_state.etl_etl_completed = False
+# Session state is now initialized in app.py:init_session_state()
+# No need to initialize here - just use the values
 
 def sync_status_from_system():
     """
