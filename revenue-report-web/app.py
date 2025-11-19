@@ -13,6 +13,21 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 import os
+import sys
+
+# ========== Guard: Ensure Web App's Modules Are Used ==========
+# Prevent sys.modules pollution from ETL imports
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Check and clean up modules that might be polluted by ETL imports
+_web_app_modules = ['config_manager', 'user_manager', 'auth_manager', 'email_sender']
+for module_name in _web_app_modules:
+    if module_name in sys.modules:
+        module = sys.modules[module_name]
+        module_file = getattr(module, '__file__', '')
+        # If module is not from current directory (web app), remove it
+        if module_file and _current_dir not in module_file:
+            del sys.modules[module_name]
 
 from config_manager import get_config_manager
 from user_manager import get_user_manager
@@ -249,7 +264,8 @@ def show_browse_reports_tab():
 
     # List Excel files
     excel_files = list(Path(reports_path).glob("*.xlsx"))
-    excel_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    # เรียงตามชื่อไฟล์ (มีวันที่อยู่ในชื่อ) แทนเวลาสร้าง
+    excel_files.sort(key=lambda x: x.name, reverse=True)
 
     if not excel_files:
         st.warning("⚠️ ไม่พบไฟล์ Excel ใน directory นี้")
@@ -322,20 +338,30 @@ def show_send_email_tab():
 
     reports_path = config.get_reports_path()
 
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.info(f"📂 Reports Location: `{reports_path}`")
+    with col2:
+        if st.button("🔄 Refresh", key="refresh_email_files", help="Refresh file list"):
+            st.rerun()
+
     if not Path(reports_path).exists():
         st.error(f"❌ ไม่พบ directory: {reports_path}")
         return
 
     excel_files = list(Path(reports_path).glob("*.xlsx"))
-    excel_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    # เรียงตามชื่อไฟล์ (มีวันที่อยู่ในชื่อ) แทนเวลาสร้าง
+    excel_files.sort(key=lambda x: x.name, reverse=True)
 
     if not excel_files:
         st.warning("⚠️ ไม่พบไฟล์ Excel")
         return
 
+    st.success(f"✓ พบ {len(excel_files)} ไฟล์")
+
     selected_files = []
     for file_path in excel_files:
-        col1, col2 = st.columns([3, 1])
+        col1, col2, col3 = st.columns([3, 2, 2])
 
         with col1:
             if st.checkbox(file_path.name, key=f"email_file_{file_path.name}"):
@@ -344,6 +370,10 @@ def show_send_email_tab():
         with col2:
             size_mb = file_path.stat().st_size / (1024 * 1024)
             st.caption(f"📦 {size_mb:.2f} MB")
+
+        with col3:
+            modified_time = datetime.fromtimestamp(file_path.stat().st_mtime)
+            st.caption(f"🕐 {modified_time.strftime('%Y-%m-%d %H:%M')}")
 
     if not selected_files:
         st.warning("⚠️ กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์")

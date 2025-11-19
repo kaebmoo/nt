@@ -46,10 +46,10 @@ def setup_etl_imports():
     if not os.path.exists(ETL_BASE_PATH):
         raise FileNotFoundError(f"ETL base path not found: {ETL_BASE_PATH}")
 
-    # Add ETL path to sys.path if not already there (at the beginning)
+    # Add ETL path to sys.path if not already there (ท้ายสุดเพื่อไม่ให้แทนที่ web app modules)
     if ETL_BASE_PATH not in sys.path:
-        # Insert at position 0 to ensure ETL modules are imported first
-        sys.path.insert(0, ETL_BASE_PATH)
+        # Append to end (NOT insert at 0) to prevent overriding web app's imports
+        sys.path.append(ETL_BASE_PATH)
 
     _etl_imports_setup = True
     return True
@@ -93,13 +93,17 @@ def _lazy_import_etl_modules():
         # Setup sys.path first so ETL modules can import their dependencies
         setup_etl_imports()
 
+        # CRITICAL: Save ALL web app's modules before importing ETL modules
+        _web_app_modules = ['config_manager', 'user_manager', 'auth_manager', 'email_sender']
+        saved_modules = {}
+        for module_name in _web_app_modules:
+            if module_name in sys.modules:
+                saved_modules[module_name] = sys.modules[module_name]
+
         # Import ConfigManager from ETL system using absolute path
         etl_config_manager_path = os.path.join(ETL_BASE_PATH, 'config_manager.py')
         etl_config_module = _import_module_from_path('_etl_config_manager', etl_config_manager_path)
         ETLConfigManager = etl_config_module.ConfigManager
-
-        # IMPORTANT: Save original web app's config_manager
-        original_config_manager = sys.modules.get('config_manager')
 
         # Temporarily inject ETL's config_manager so main.py can use it
         sys.modules['config_manager'] = etl_config_module
@@ -109,11 +113,12 @@ def _lazy_import_etl_modules():
         etl_main_module = _import_module_from_path('_etl_main', etl_main_path)
         RevenueETLSystem = etl_main_module.RevenueETLSystem
 
-        # RESTORE web app's config_manager immediately after import
-        if original_config_manager:
-            sys.modules['config_manager'] = original_config_manager
-        else:
-            # If there was no original, remove ETL's version
+        # RESTORE ALL web app's modules immediately after import
+        for module_name, module in saved_modules.items():
+            sys.modules[module_name] = module
+
+        # If no original modules, ensure ETL's versions are removed
+        if not saved_modules.get('config_manager'):
             sys.modules.pop('config_manager', None)
 
         # Import FI module

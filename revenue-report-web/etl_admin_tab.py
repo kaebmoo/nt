@@ -756,6 +756,27 @@ def show_fi_module():
         st.markdown("### Output Files")
         for key, file in fi_config['output_files'].items():
             st.text(f"💾 {key}: {file}")
+
+        # Download buttons (แสดงเฉพาะเมื่อ processing เสร็จแล้ว)
+        if get_fi_status() and st.session_state.etl_system.fi_output:
+            st.markdown("---")
+            st.markdown("**📥 Download:**")
+
+            output_files = st.session_state.etl_system.fi_output
+            for key, file_path in output_files.items():
+                if file_path and os.path.exists(file_path):
+                    file_name = os.path.basename(file_path)
+                    with open(file_path, 'rb') as f:
+                        file_ext = os.path.splitext(file_name)[1]
+                        mime_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if file_ext == '.xlsx' else 'text/csv'
+
+                        st.download_button(
+                            label=f"⬇️ {key}",
+                            data=f.read(),
+                            file_name=file_name,
+                            mime=mime_type,
+                            key=f"download_fi_{key}"
+                        )
     
     # Processing
     st.markdown("---")

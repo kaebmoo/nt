@@ -1236,10 +1236,25 @@ class RevenueETL:
             self.log(f"ผลการตรวจสอบ:")
             for status, count in status_counts.items():
                 self.log(f"  - {status}: {count} รายการ")
-            
-            # เก็บผลลัพธ์
-            anomaly_results[level_name] = df_pivot
-        
+
+            # คำนวณ summary สำหรับ web interface
+            summary = {
+                'total_anomalies': int(status_counts.drop('Normal', errors='ignore').sum()),
+                'high_spikes': int(status_counts.get('High_Spike', 0)),
+                'low_dips': int(status_counts.get('Low_Dip', 0)),
+                'new_items': int(status_counts.get('New_Item', 0)),
+                'negative_values': int(status_counts.get('Negative_Value', 0)),
+                'normal': int(status_counts.get('Normal', 0)),
+                'total_records': len(df_pivot)
+            }
+
+            # เก็บผลลัพธ์พร้อม summary และ dataframe
+            anomaly_results[level_name] = {
+                'summary': summary,
+                'dataframe': df_pivot,
+                'status_counts': status_counts.to_dict()
+            }
+
         return anomaly_results
     
     def _check_anomaly_row(self, row, latest_col, historical_cols):
