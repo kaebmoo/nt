@@ -1,0 +1,136 @@
+<!-- anomaly_web/templates/index.html -->
+{% extends "base.html" %}
+
+{% block title %}หน้าแรก - Anomaly Detection System{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Hero Section -->
+    <div class="row justify-content-center text-center mb-5">
+        <div class="col-lg-8">
+            <h1 class="display-4 mb-3">
+                <i class="bi bi-graph-up text-primary"></i>
+                ระบบตรวจจับความผิดปกติทางการเงิน
+            </h1>
+            <p class="lead text-muted">
+                วิเคราะห์และตรวจสอบความผิดปกติของข้อมูลด้วย Machine Learning
+            </p>
+        </div>
+    </div>
+
+    <!-- Features -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-4">
+            <div class="card h-100 border-primary shadow-sm">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="bi bi-clock-history display-1 text-primary"></i>
+                    </div>
+                    <h5 class="card-title">Time Series Analysis</h5>
+                    <p class="card-text text-muted">
+                        เปรียบเทียบข้อมูลกับประวัติในอดีต ตรวจจับการเปลี่ยนแปลงที่ผิดปกติ
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 border-success shadow-sm">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="bi bi-people display-1 text-success"></i>
+                    </div>
+                    <h5 class="card-title">Peer Group Analysis</h5>
+                    <p class="card-text text-muted">
+                        เปรียบเทียบกับกลุ่มเพื่อน ตรวจจับค่าที่แตกต่างจากกลุ่ม
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 border-info shadow-sm">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="bi bi-file-earmark-excel display-1 text-info"></i>
+                    </div>
+                    <h5 class="card-title">Excel Report</h5>
+                    <p class="card-text text-muted">
+                        สร้างรายงานแบบ Interactive พร้อมไฮไลท์ความผิดปกติ
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row justify-content-center">
+        <div class="col-lg-6 text-center">
+            <div class="d-grid gap-3">
+                <a href="{{ url_for('upload') }}" class="btn btn-primary btn-lg">
+                    <i class="bi bi-cloud-upload"></i> เริ่มต้นใช้งาน - อัพโหลดไฟล์
+                </a>
+                <a href="{{ url_for('history') }}" class="btn btn-outline-secondary btn-lg">
+                    <i class="bi bi-clock-history"></i> ดูประวัติการทำงาน
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- How it works -->
+    <div class="row mt-5">
+        <div class="col-12">
+            <h3 class="text-center mb-4">วิธีการใช้งาน</h3>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-primary rounded-circle me-2" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">1</span>
+                                <h6 class="mb-0">อัพโหลดไฟล์</h6>
+                            </div>
+                            <small class="text-muted">อัพโหลด CSV หรือ Excel ของคุณ</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-primary rounded-circle me-2" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">2</span>
+                                <h6 class="mb-0">ดูตัวอย่างข้อมูล</h6>
+                            </div>
+                            <small class="text-muted">ระบบแสดงตัวอย่างและวิเคราะห์ข้อมูล</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-primary rounded-circle me-2" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">3</span>
+                                <h6 class="mb-0">กำหนดค่า</h6>
+                            </div>
+                            <small class="text-muted">เลือก columns และตั้งค่าการวิเคราะห์</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-3">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-primary rounded-circle me-2" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">4</span>
+                                <h6 class="mb-0">รับรายงาน</h6>
+                            </div>
+                            <small class="text-muted">ดาวน์โหลดรายงาน Excel</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

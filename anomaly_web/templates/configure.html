@@ -1,0 +1,388 @@
+<!-- anomaly_web/templates/configure.html -->
+{% extends "base.html" %}
+
+{% block title %}กำหนดค่า{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <h2>
+                <i class="bi bi-gear text-primary"></i>
+                กำหนดค่าการวิเคราะห์
+            </h2>
+            <p class="text-muted">{{ file_info.original_filename }}</p>
+        </div>
+    </div>
+
+    <form id="configForm">
+        <input type="hidden" name="file_id" value="{{ file_info.file_id }}">
+        <input type="hidden" name="input_mode" value="{{ file_info.input_mode }}">
+
+        <div class="row">
+            <!-- Left Panel: Configuration -->
+            <div class="col-md-8">
+                
+                <!-- Mode-specific Configuration -->
+                {% if file_info.input_mode == 'long' %}
+                <!-- LONG FORMAT CONFIG -->
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">1. คอลัมน์วันที่และค่า</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">YEAR Column</label>
+                                <select class="form-select" name="col_year">
+                                    <option value="">-- เลือก --</option>
+                                    {% for col in analysis.columns.keys() %}
+                                    <option value="{{ col }}" 
+                                            {% if col == analysis.recommendations.year_column %}selected{% endif %}>
+                                        {{ col }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">MONTH Column</label>
+                                <select class="form-select" name="col_month">
+                                    <option value="">-- เลือก --</option>
+                                    {% for col in analysis.columns.keys() %}
+                                    <option value="{{ col }}"
+                                            {% if col == analysis.recommendations.month_column %}selected{% endif %}>
+                                        {{ col }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Value Column *</label>
+                                <select class="form-select" name="target_col" required>
+                                    <option value="">-- เลือก --</option>
+                                    {% for col in analysis.recommendations.value_columns %}
+                                    <option value="{{ col.name }}" {% if loop.first %}selected{% endif %}>
+                                        {{ col.name }} ({{ col.confidence }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% else %}
+                <!-- CROSSTAB FORMAT CONFIG -->
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">1. Crosstab Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">ID Variables (Dimensions) *</label>
+                            <select class="form-select" name="crosstab_id_vars" multiple size="5" required>
+                                {% for col in analysis.recommendations.id_vars %}
+                                <option value="{{ col.name }}" selected>
+                                    {{ col.name }} ({{ col.unique_count }} unique)
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <small class="form-text text-muted">กด Ctrl/Cmd เพื่อเลือกหลายคอลัมน์</small>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Value Name *</label>
+                                <input type="text" class="form-control" name="crosstab_value_name" 
+                                       value="{{ analysis.recommendations.value_name_options[0] if analysis.recommendations.value_name_options else 'VALUE' }}" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Mode *</label>
+                                <select class="form-select" name="crosstab_mode">
+                                    <option value="auto" {% if analysis.recommendations.mode == 'auto' %}selected{% endif %}>Auto</option>
+                                    <option value="date" {% if analysis.recommendations.mode == 'date' %}selected{% endif %}>Date (YYYY-MM)</option>
+                                    <option value="sequential">Sequential (1,2,3...)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Dimensions Selection -->
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">2. เลือกมิติข้อมูล (Dimensions)</h5>
+                    </div>
+                    <div class="card-body">
+                        <label class="form-label">Crosstab Report Dimensions *</label>
+                        <select class="form-select" name="crosstab_dimensions" multiple size="6" required>
+                            {% for col, info in analysis.columns.items() %}
+                            {% if info.detected_type in ['categorical', 'text'] %}
+                            <option value="{{ col }}" 
+                                    {% if col in ['GROUP_NAME', 'GL_CODE', 'GL_NAME', 'PRODUCT_KEY'] %}selected{% endif %}>
+                                {{ col }} ({{ info.unique_count }} unique)
+                            </option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">เลือกมิติที่ต้องการแสดงในรายงาน</small>
+                    </div>
+                </div>
+
+                <!-- Analysis Options -->
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">3. ตัวเลือกการวิเคราะห์</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="runTimeSeries" 
+                                   name="run_time_series_analysis" checked>
+                            <label class="form-check-label" for="runTimeSeries">
+                                <strong>Time Series Analysis</strong>
+                                <br><small class="text-muted">เปรียบเทียบกับข้อมูลในอดีต</small>
+                            </label>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="runPeerGroup" 
+                                   name="run_peer_group_analysis">
+                            <label class="form-check-label" for="runPeerGroup">
+                                <strong>Peer Group Analysis</strong>
+                                <br><small class="text-muted">⚠️ ใช้เวลานาน - เปรียบเทียบกับกลุ่มเพื่อน</small>
+                            </label>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="runCrosstab" 
+                                   name="run_crosstab_report" checked>
+                            <label class="form-check-label" for="runCrosstab">
+                                <strong>Crosstab Report</strong>
+                                <br><small class="text-muted">สร้างรายงานแบบ Crosstab พร้อมไฮไลท์</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced Settings (Collapsible) -->
+                <div class="card mb-3">
+                    <div class="card-header bg-secondary text-white">
+                        <a class="text-white text-decoration-none d-flex justify-content-between" 
+                           data-bs-toggle="collapse" href="#advancedSettings">
+                            <h5 class="mb-0">4. ตั้งค่าขั้นสูง (Optional)</h5>
+                            <i class="bi bi-chevron-down"></i>
+                        </a>
+                    </div>
+                    <div class="collapse" id="advancedSettings">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Time Series Window</label>
+                                    <input type="number" class="form-control" name="audit_ts_window" 
+                                           value="6" min="3" max="12">
+                                    <small class="text-muted">จำนวนเดือนย้อนหลังสำหรับเปรียบเทียบ</small>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Crosstab Min History</label>
+                                    <input type="number" class="form-control" name="crosstab_min_history" 
+                                           value="3" min="2" max="12">
+                                    <small class="text-muted">จำนวนเดือนขั้นต่ำสำหรับการวิเคราะห์</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Save Buttons -->
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="bi bi-play-circle"></i> เริ่มวิเคราะห์
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="saveConfigBtn">
+                                <i class="bi bi-save"></i> บันทึกค่าเป็น Template
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Templates & Info -->
+            <div class="col-md-4">
+                <!-- Templates -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="bi bi-bookmark"></i> Configuration Templates</h6>
+                    </div>
+                    <div class="card-body">
+                        {% if templates %}
+                        <div class="list-group">
+                            {% for template in templates %}
+                            <a href="#" class="list-group-item list-group-item-action load-template" 
+                               data-template="{{ template.name }}">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{ template.name }}</strong>
+                                        <br><small class="text-muted">{{ template.description }}</small>
+                                    </div>
+                                    <i class="bi bi-arrow-right-circle"></i>
+                                </div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-muted text-center">ยังไม่มี template</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Tips -->
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="bi bi-lightbulb"></i> เคล็ดลับ</h6>
+                    </div>
+                    <div class="card-body">
+                        <ul class="small">
+                            <li>เลือกมิติข้อมูลที่สำคัญ เช่น GL_CODE, COST_CENTER</li>
+                            <li>Time Series: เร็ว แต่อาจพลาด anomaly ที่เกิดจากปัจจัยภายนอก</li>
+                            <li>Peer Group: ละเอียด แต่ใช้เวลานาน</li>
+                            <li>ควรเปิดทั้งสองวิธีสำหรับการวิเคราะห์ที่ครบถ้วน</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Save Template Modal -->
+<div class="modal fade" id="saveTemplateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">บันทึก Configuration Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">ชื่อ Template</label>
+                <input type="text" class="form-control" id="templateName" placeholder="เช่น: Expense Analysis 2024">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+                <button type="button" class="btn btn-primary" id="confirmSaveTemplate">บันทึก</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Submit configuration
+    $('#configForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const config = {};
+        
+        // Convert FormData to object
+        for (const [key, value] of formData.entries()) {
+            if (key.includes('_dimensions') || key.includes('_id_vars')) {
+                // Handle multiple select
+                if (!config[key]) config[key] = [];
+                config[key].push(value);
+            } else if (key.includes('checkbox')) {
+                config[key] = true;
+            } else {
+                config[key] = value;
+            }
+        }
+        
+        // Validate
+        if (!confirm('ยืนยันการเริ่มวิเคราะห์ข้อมูล?')) {
+            return;
+        }
+        
+        // Save config and redirect to process page
+        $.ajax({
+            url: '{{ url_for("configure", file_id=file_info.file_id) }}',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(config),
+            success: function() {
+                window.location.href = '{{ url_for("process", file_id=file_info.file_id) }}';
+            },
+            error: function(xhr) {
+                alert('เกิดข้อผิดพลาด: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            }
+        });
+    });
+
+    // Save template
+    $('#saveConfigBtn').on('click', function() {
+        $('#saveTemplateModal').modal('show');
+    });
+
+    $('#confirmSaveTemplate').on('click', function() {
+        const templateName = $('#templateName').val();
+        if (!templateName) {
+            alert('กรุณาระบุชื่อ template');
+            return;
+        }
+
+        const formData = new FormData($('#configForm')[0]);
+        const config = {};
+        for (const [key, value] of formData.entries()) {
+            config[key] = value;
+        }
+
+        $.ajax({
+            url: '{{ url_for("save_template") }}',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                template_name: templateName,
+                config: config
+            }),
+            success: function() {
+                alert('บันทึก template สำเร็จ');
+                $('#saveTemplateModal').modal('hide');
+                location.reload();
+            },
+            error: function(xhr) {
+                alert('เกิดข้อผิดพลาด: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            }
+        });
+    });
+
+    // Load template
+    $('.load-template').on('click', function(e) {
+        e.preventDefault();
+        const templateName = $(this).data('template');
+
+        $.ajax({
+            url: '{{ url_for("load_template", template_name="") }}' + templateName,
+            type: 'GET',
+            success: function(template) {
+                // Populate form with template values
+                for (const [key, value] of Object.entries(template)) {
+                    const input = $(`[name="${key}"]`);
+                    if (input.length) {
+                        input.val(value);
+                    }
+                }
+                alert('โหลด template สำเร็จ');
+            },
+            error: function() {
+                alert('ไม่สามารถโหลด template ได้');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

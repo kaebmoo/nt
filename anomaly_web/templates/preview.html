@@ -1,0 +1,209 @@
+<!-- anomaly_web/templates/preview.html -->
+{% extends "base.html" %}
+
+{% block title %}ตัวอย่างข้อมูล{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <h2>
+                <i class="bi bi-eye text-primary"></i>
+                ตัวอย่างข้อมูล
+            </h2>
+            <p class="text-muted">{{ data.file_info.original_filename }}</p>
+        </div>
+        <div class="col-auto">
+            <a href="{{ url_for('configure', file_id=data.file_info.file_id) }}" 
+               class="btn btn-primary btn-lg">
+                <i class="bi bi-gear"></i> ดำเนินการต่อ - กำหนดค่า
+            </a>
+        </div>
+    </div>
+
+    <!-- File Info Card -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> ข้อมูลไฟล์</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>ชื่อไฟล์:</strong><br>
+                            {{ data.file_info.original_filename }}
+                        </div>
+                        <div class="col-md-2">
+                            <strong>ขนาด:</strong><br>
+                            {{ data.file_info.file_size_mb }} MB
+                        </div>
+                        <div class="col-md-2">
+                            <strong>จำนวนแถว:</strong><br>
+                            {{ "{:,}".format(data.shape[0]) }} แถว
+                        </div>
+                        <div class="col-md-2">
+                            <strong>จำนวนคอลัมน์:</strong><br>
+                            {{ data.shape[1] }} คอลัมน์
+                        </div>
+                        <div class="col-md-3">
+                            <strong>รูปแบบ:</strong><br>
+                            <span class="badge bg-{{ 'info' if data.file_info.input_mode == 'long' else 'success' }}">
+                                {{ data.file_info.input_mode.upper() }}
+                            </span>
+                        </div>
+                    </div>
+                    {% if data.file_info.description %}
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <strong>คำอธิบาย:</strong><br>
+                            {{ data.file_info.description }}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analysis Results -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-graph-up"></i> การวิเคราะห์อัตโนมัติ</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- Recommendations for Long Format -->
+                        {% if data.file_info.input_mode == 'long' %}
+                        <div class="col-md-4">
+                            <h6>คอลัมน์วันที่</h6>
+                            <ul class="list-unstyled">
+                                {% if data.analysis.recommendations.year_column %}
+                                <li><i class="bi bi-check-circle text-success"></i> Year: <code>{{ data.analysis.recommendations.year_column }}</code></li>
+                                {% endif %}
+                                {% if data.analysis.recommendations.month_column %}
+                                <li><i class="bi bi-check-circle text-success"></i> Month: <code>{{ data.analysis.recommendations.month_column }}</code></li>
+                                {% endif %}
+                                {% if data.analysis.recommendations.date_column %}
+                                <li><i class="bi bi-check-circle text-success"></i> Date: <code>{{ data.analysis.recommendations.date_column }}</code></li>
+                                {% endif %}
+                            </ul>
+                        </div>
+
+                        <div class="col-md-4">
+                            <h6>คอลัมน์ค่าตัวเลข ({{ data.analysis.recommendations.value_columns|length }})</h6>
+                            <ul class="list-unstyled" style="max-height: 200px; overflow-y: auto;">
+                                {% for col in data.analysis.recommendations.value_columns[:5] %}
+                                <li>
+                                    <span class="badge bg-{{ 'success' if col.confidence == 'high' else 'warning' }}">
+                                        {{ col.confidence }}
+                                    </span>
+                                    <code>{{ col.name }}</code>
+                                </li>
+                                {% endfor %}
+                                {% if data.analysis.recommendations.value_columns|length > 5 %}
+                                <li class="text-muted">... และอีก {{ data.analysis.recommendations.value_columns|length - 5 }} คอลัมน์</li>
+                                {% endif %}
+                            </ul>
+                        </div>
+
+                        <div class="col-md-4">
+                            <h6>มิติข้อมูล (Dimensions) ({{ data.analysis.recommendations.dimension_columns|length }})</h6>
+                            <ul class="list-unstyled" style="max-height: 200px; overflow-y: auto;">
+                                {% for col in data.analysis.recommendations.dimension_columns[:5] %}
+                                <li>
+                                    <code>{{ col.name }}</code>
+                                    <small class="text-muted">({{ col.unique_count }} values)</small>
+                                </li>
+                                {% endfor %}
+                                {% if data.analysis.recommendations.dimension_columns|length > 5 %}
+                                <li class="text-muted">... และอีก {{ data.analysis.recommendations.dimension_columns|length - 5 }} คอลัมน์</li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                        
+                        <!-- Recommendations for Crosstab Format -->
+                        {% else %}
+                        <div class="col-md-6">
+                            <h6>Dimension Columns</h6>
+                            <ul class="list-unstyled">
+                                {% for col in data.analysis.recommendations.id_vars[:5] %}
+                                <li><code>{{ col.name }}</code> <small class="text-muted">({{ col.unique_count }} unique)</small></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <div class="col-md-6">
+                            <h6>Date/Period Columns</h6>
+                            <ul class="list-unstyled">
+                                {% for col in data.analysis.recommendations.date_columns[:5] %}
+                                <li><code>{{ col.name }}</code> <small class="text-muted">({{ col.format }})</small></li>
+                                {% endfor %}
+                            </ul>
+                            <p class="text-muted"><strong>แนะนำ Mode:</strong> {{ data.analysis.recommendations.mode }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sample Data -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-table"></i> ตัวอย่างข้อมูล (20 แถวแรก)</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    {% for col in data.columns %}
+                                    <th>
+                                        {{ col }}
+                                        <br>
+                                        <small class="text-muted">
+                                            {{ data.analysis.columns[col].detected_type }}
+                                        </small>
+                                    </th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for idx, row in data.sample_data|slice(20) %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    {% for col in data.columns %}
+                                    <td>{{ row[col] }}</td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mt-4 mb-5">
+        <div class="col-12 text-center">
+            <a href="{{ url_for('configure', file_id=data.file_info.file_id) }}" 
+               class="btn btn-primary btn-lg">
+                <i class="bi bi-arrow-right-circle"></i> ดำเนินการต่อ - กำหนดค่า
+            </a>
+            <a href="{{ url_for('upload') }}" class="btn btn-outline-secondary btn-lg">
+                <i class="bi bi-arrow-left"></i> อัพโหลดไฟล์ใหม่
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

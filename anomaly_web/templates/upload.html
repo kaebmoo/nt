@@ -1,0 +1,162 @@
+<!-- anomaly_web/templates/upload.html -->
+{% extends "base.html" %}
+
+{% block title %}อัพโหลดไฟล์{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <!-- Header -->
+            <div class="text-center mb-4">
+                <h2>
+                    <i class="bi bi-cloud-upload text-primary"></i>
+                    อัพโหลดไฟล์ข้อมูล
+                </h2>
+                <p class="text-muted">รองรับไฟล์ CSV และ Excel (XLSX, XLS) ขนาดไม่เกิน 500 MB</p>
+            </div>
+
+            <!-- Upload Form -->
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        <!-- File Input -->
+                        <div class="mb-4">
+                            <label for="fileInput" class="form-label fw-bold">
+                                <i class="bi bi-file-earmark-arrow-up"></i> เลือกไฟล์
+                            </label>
+                            <input type="file" class="form-control form-control-lg" id="fileInput" name="file" 
+                                   accept=".csv,.xlsx,.xls" required>
+                            <div class="form-text">รองรับ: CSV, XLSX, XLS</div>
+                        </div>
+
+                        <!-- Input Mode -->
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">
+                                <i class="bi bi-grid"></i> รูปแบบข้อมูล
+                            </label>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="form-check card p-3">
+                                        <input class="form-check-input" type="radio" name="input_mode" 
+                                               id="modeLong" value="long" checked>
+                                        <label class="form-check-label" for="modeLong">
+                                            <strong>Long Format</strong>
+                                            <small class="d-block text-muted">
+                                                แถว = รายการ, คอลัมน์ = ฟิลด์<br>
+                                                เช่น: YEAR, MONTH, GL_CODE, VALUE
+                                            </small>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check card p-3">
+                                        <input class="form-check-input" type="radio" name="input_mode" 
+                                               id="modeCrosstab" value="crosstab">
+                                        <label class="form-check-label" for="modeCrosstab">
+                                            <strong>Crosstab / Pivot Format</strong>
+                                            <small class="d-block text-muted">
+                                                แถว = dimension, คอลัมน์ = เดือน<br>
+                                                เช่น: GL_CODE | ม.ค. | ก.พ. | ...
+                                            </small>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Description (Optional) -->
+                        <div class="mb-4">
+                            <label for="description" class="form-label fw-bold">
+                                <i class="bi bi-card-text"></i> คำอธิบาย (ไม่บังคับ)
+                            </label>
+                            <textarea class="form-control" id="description" name="description" 
+                                      rows="3" placeholder="เช่น: ข้อมูล Expense ปี 2024, รายงานรายเดือน..."></textarea>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn">
+                                <i class="bi bi-upload"></i> อัพโหลดและดูตัวอย่าง
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Progress Bar (Hidden initially) -->
+                    <div id="uploadProgress" class="mt-4" style="display: none;">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <p class="text-center mt-2 text-muted">กำลังอัพโหลด...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tips -->
+            <div class="alert alert-info mt-4">
+                <h6><i class="bi bi-lightbulb"></i> เคล็ดลับ:</h6>
+                <ul class="mb-0">
+                    <li>ไฟล์ควรมีข้อมูลอย่างน้อย 3 เดือน เพื่อการวิเคราะห์ที่ดี</li>
+                    <li>Long Format: ควรมี YEAR, MONTH, และคอลัมน์ค่าตัวเลข</li>
+                    <li>Crosstab Format: คอลัมน์แรกเป็น dimension, คอลัมน์อื่นเป็นเดือน</li>
+                    <li>ระบบจะวิเคราะห์และแนะนำการตั้งค่าอัตโนมัติ</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $('#uploadForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const fileInput = $('#fileInput')[0];
+        
+        // Validate file
+        if (!fileInput.files || fileInput.files.length === 0) {
+            alert('กรุณาเลือกไฟล์');
+            return;
+        }
+        
+        // Show progress
+        $('#uploadBtn').prop('disabled', true);
+        $('#uploadProgress').show();
+        
+        // Upload file
+        $.ajax({
+            url: '{{ url_for("upload") }}',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            xhr: function() {
+                const xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function(e) {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        $('.progress-bar').css('width', percentComplete + '%');
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function(response) {
+                // Redirect is handled by server
+                window.location.href = response.redirect || '/';
+            },
+            error: function(xhr) {
+                alert('เกิดข้อผิดพลาด: ' + (xhr.responseJSON?.error || 'Unknown error'));
+                $('#uploadBtn').prop('disabled', false);
+                $('#uploadProgress').hide();
+                $('.progress-bar').css('width', '0%');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

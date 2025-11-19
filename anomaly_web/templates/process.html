@@ -1,0 +1,214 @@
+<!-- anomaly_web/templates/process.html -->
+{% extends "base.html" %}
+
+{% block title %}กำลังประมวลผล{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <!-- Header -->
+            <div class="text-center mb-4">
+                <h2>
+                    <i class="bi bi-hourglass-split text-primary"></i>
+                    กำลังประมวลผลข้อมูล
+                </h2>
+                <p class="text-muted">{{ file_info.original_filename }}</p>
+            </div>
+
+            <!-- Progress Card -->
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <div id="progressInfo">
+                        <!-- Progress Bar -->
+                        <div class="mb-4">
+                            <div class="progress" style="height: 30px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                                     role="progressbar" 
+                                     id="progressBar"
+                                     style="width: 0%"
+                                     aria-valuenow="0" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
+                                    <span id="progressPercent">0%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Status Message -->
+                        <div class="text-center mb-4">
+                            <h5 id="statusMessage">เริ่มต้นการประมวลผล...</h5>
+                            <p class="text-muted" id="statusDetail"></p>
+                        </div>
+
+                        <!-- Processing Steps -->
+                        <div class="list-group mb-4">
+                            <div class="list-group-item" id="step-loading">
+                                <i class="bi bi-circle text-muted"></i> โหลดข้อมูล
+                            </div>
+                            <div class="list-group-item" id="step-preprocessing">
+                                <i class="bi bi-circle text-muted"></i> เตรียมข้อมูล
+                            </div>
+                            <div class="list-group-item" id="step-time_series">
+                                <i class="bi bi-circle text-muted"></i> วิเคราะห์ Time Series
+                            </div>
+                            <div class="list-group-item" id="step-peer_group">
+                                <i class="bi bi-circle text-muted"></i> วิเคราะห์ Peer Group
+                            </div>
+                            <div class="list-group-item" id="step-report">
+                                <i class="bi bi-circle text-muted"></i> สร้างรายงาน
+                            </div>
+                        </div>
+
+                        <!-- Completion Message (Hidden initially) -->
+                        <div id="completionMessage" class="alert alert-success" style="display: none;">
+                            <h5><i class="bi bi-check-circle"></i> ประมวลผลเสร็จสมบูรณ์!</h5>
+                            <p id="resultSummary"></p>
+                            <div class="d-grid gap-2 mt-3">
+                                <a href="#" id="downloadLink" class="btn btn-success btn-lg">
+                                    <i class="bi bi-download"></i> ดาวน์โหลดรายงาน
+                                </a>
+                                <a href="{{ url_for('history') }}" class="btn btn-outline-primary">
+                                    <i class="bi bi-clock-history"></i> ไปที่ประวัติ
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Error Message (Hidden initially) -->
+                        <div id="errorMessage" class="alert alert-danger" style="display: none;">
+                            <h5><i class="bi bi-exclamation-triangle"></i> เกิดข้อผิดพลาด</h5>
+                            <p id="errorDetail"></p>
+                            <div class="d-grid gap-2 mt-3">
+                                <a href="{{ url_for('configure', file_id=file_info.file_id) }}" 
+                                   class="btn btn-warning">
+                                    <i class="bi bi-arrow-repeat"></i> ลองใหม่อีกครั้ง
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    const fileId = '{{ file_info.file_id }}';
+    let progressInterval;
+
+    // Start processing
+    function startProcessing() {
+        $.ajax({
+            url: '/api/run-audit/' + fileId,
+            type: 'POST',
+            success: function(result) {
+                // Processing completed
+                handleCompletion(result);
+            },
+            error: function(xhr) {
+                handleError(xhr.responseJSON?.error || 'Unknown error');
+            }
+        });
+
+        // Start polling progress
+        progressInterval = setInterval(updateProgress, 1000);
+    }
+
+    // Update progress
+    function updateProgress() {
+        $.ajax({
+            url: '/api/progress/' + fileId,
+            type: 'GET',
+            success: function(progress) {
+                const percent = progress.progress || 0;
+                const status = progress.status || 'processing';
+                const message = progress.message || 'Processing...';
+
+                // Update progress bar
+                $('#progressBar').css('width', percent + '%');
+                $('#progressBar').attr('aria-valuenow', percent);
+                $('#progressPercent').text(percent.toFixed(0) + '%');
+
+                // Update status message
+                $('#statusMessage').text(message);
+
+                // Update steps
+                updateSteps(status);
+
+                // Check if completed
+                if (status === 'completed') {
+                    clearInterval(progressInterval);
+                    handleCompletion(progress.result);
+                } else if (status === 'error') {
+                    clearInterval(progressInterval);
+                    handleError(progress.message);
+                }
+            }
+        });
+    }
+
+    // Update step indicators
+    function updateSteps(currentStatus) {
+        const steps = ['loading', 'preprocessing', 'time_series', 'peer_group', 'generating_report'];
+        const statusMap = {
+            'loading': 0,
+            'preprocessing': 1,
+            'time_series': 2,
+            'peer_group': 3,
+            'generating_report': 4,
+            'completed': 5
+        };
+
+        const currentIndex = statusMap[currentStatus] || 0;
+
+        steps.forEach((step, index) => {
+            const stepEl = $('#step-' + step + ' i');
+            if (index < currentIndex) {
+                stepEl.removeClass('bi-circle text-muted bi-circle-fill text-warning');
+                stepEl.addClass('bi-check-circle-fill text-success');
+            } else if (index === currentIndex) {
+                stepEl.removeClass('bi-circle text-muted bi-check-circle-fill text-success');
+                stepEl.addClass('bi-circle-fill text-warning');
+            }
+        });
+    }
+
+    // Handle completion
+    function handleCompletion(result) {
+        $('#progressBar').removeClass('progress-bar-animated');
+        $('#progressBar').addClass('bg-success');
+        $('#progressBar').css('width', '100%');
+        $('#progressPercent').text('100%');
+
+        // Show completion message
+        $('#completionMessage').show();
+        $('#resultSummary').html(
+            `<strong>ผลการวิเคราะห์:</strong><br>` +
+            `- จำนวนแถวทั้งหมด: ${result.total_rows?.toLocaleString() || 'N/A'}<br>` +
+            `- Time Series Anomalies: ${result.ts_anomalies?.toLocaleString() || '0'}<br>` +
+            `- Peer Group Anomalies: ${result.peer_anomalies?.toLocaleString() || '0'}`
+        );
+        $('#downloadLink').attr('href', result.download_url || '#');
+
+        // Update all steps to completed
+        updateSteps('completed');
+    }
+
+    // Handle error
+    function handleError(errorMsg) {
+        $('#progressBar').removeClass('progress-bar-animated bg-primary');
+        $('#progressBar').addClass('bg-danger');
+
+        $('#errorMessage').show();
+        $('#errorDetail').text(errorMsg);
+    }
+
+    // Start processing on page load
+    startProcessing();
+});
+</script>
+{% endblock %}

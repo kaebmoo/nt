@@ -1,0 +1,237 @@
+<!-- anomaly_web/templates/history.html -->
+{% extends "base.html" %}
+
+{% block title %}ประวัติการทำงาน{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <h2>
+                <i class="bi bi-clock-history text-primary"></i>
+                ประวัติการทำงาน
+            </h2>
+            <p class="text-muted">จัดการไฟล์ input และ output ของคุณ</p>
+        </div>
+        <div class="col-auto">
+            <a href="{{ url_for('upload') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> อัพโหลดไฟล์ใหม่
+            </a>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-4" id="historyTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="uploads-tab" data-bs-toggle="tab" 
+                    data-bs-target="#uploads" type="button">
+                <i class="bi bi-file-earmark-arrow-up"></i> ไฟล์ Input ({{ uploads|length }})
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="outputs-tab" data-bs-toggle="tab" 
+                    data-bs-target="#outputs" type="button">
+                <i class="bi bi-file-earmark-excel"></i> ไฟล์ Output ({{ outputs|length }})
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab Contents -->
+    <div class="tab-content" id="historyTabContent">
+        <!-- Uploads Tab -->
+        <div class="tab-pane fade show active" id="uploads" role="tabpanel">
+            {% if uploads %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ชื่อไฟล์</th>
+                            <th>รูปแบบ</th>
+                            <th>ขนาด</th>
+                            <th>Tags</th>
+                            <th>วันที่อัพโหลด</th>
+                            <th>การกระทำ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for upload in uploads %}
+                        <tr>
+                            <td>
+                                <i class="bi bi-file-earmark-text text-primary"></i>
+                                {{ upload.original_filename }}
+                                {% if upload.description %}
+                                <br><small class="text-muted">{{ upload.description }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-{{ 'info' if upload.input_mode == 'long' else 'success' }}">
+                                    {{ upload.input_mode.upper() }}
+                                </span>
+                            </td>
+                            <td>{{ upload.file_size_mb }} MB</td>
+                            <td>
+                                {% for tag in upload.tags[:3] %}
+                                <span class="badge bg-secondary">{{ tag }}</span>
+                                {% endfor %}
+                            </td>
+                            <td>
+                                <small>{{ upload.upload_time[:19] }}</small>
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{{ url_for('preview', file_id=upload.file_id) }}" 
+                                       class="btn btn-outline-primary">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('configure', file_id=upload.file_id) }}" 
+                                       class="btn btn-outline-success">
+                                        <i class="bi bi-play"></i>
+                                    </a>
+                                    <button class="btn btn-outline-danger delete-upload" 
+                                            data-file-id="{{ upload.file_id }}">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-inbox display-1 text-muted"></i>
+                <p class="text-muted mt-3">ยังไม่มีไฟล์ที่อัพโหลด</p>
+                <a href="{{ url_for('upload') }}" class="btn btn-primary">
+                    <i class="bi bi-cloud-upload"></i> อัพโหลดไฟล์แรก
+                </a>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Outputs Tab -->
+        <div class="tab-pane fade" id="outputs" role="tabpanel">
+            {% if outputs %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ชื่อไฟล์</th>
+                            <th>ขนาด</th>
+                            <th>Configuration</th>
+                            <th>ผลลัพธ์</th>
+                            <th>วันที่สร้าง</th>
+                            <th>การกระทำ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for output in outputs %}
+                        <tr>
+                            <td>
+                                <i class="bi bi-file-earmark-excel text-success"></i>
+                                {{ output.filename }}
+                            </td>
+                            <td>{{ output.file_size_mb }} MB</td>
+                            <td>
+                                <small>
+                                    Mode: {{ output.config_summary.input_mode }}<br>
+                                    {% if output.config_summary.time_series_enabled %}
+                                    <i class="bi bi-check text-success"></i> Time Series
+                                    {% endif %}
+                                    {% if output.config_summary.peer_group_enabled %}
+                                    <i class="bi bi-check text-success"></i> Peer Group
+                                    {% endif %}
+                                </small>
+                            </td>
+                            <td>
+                                <small>
+                                    {% if output.result_summary %}
+                                    Rows: {{ output.result_summary.total_rows|default(0) }}<br>
+                                    TS: {{ output.result_summary.ts_anomalies|default(0) }}<br>
+                                    Peer: {{ output.result_summary.peer_anomalies|default(0) }}
+                                    {% else %}
+                                    N/A
+                                    {% endif %}
+                                </small>
+                            </td>
+                            <td>
+                                <small>{{ output.created_time[:19] }}</small>
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{{ url_for('download_output', output_id=output.output_id) }}" 
+                                       class="btn btn-outline-success">
+                                        <i class="bi bi-download"></i> ดาวน์โหลด
+                                    </a>
+                                    <button class="btn btn-outline-danger delete-output" 
+                                            data-output-id="{{ output.output_id }}">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-inbox display-1 text-muted"></i>
+                <p class="text-muted mt-3">ยังไม่มีไฟล์ output</p>
+                <a href="{{ url_for('upload') }}" class="btn btn-primary">
+                    <i class="bi bi-cloud-upload"></i> เริ่มสร้างรายงาน
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Delete upload
+    $('.delete-upload').on('click', function() {
+        const fileId = $(this).data('file-id');
+        
+        if (!confirm('ยืนยันการลบไฟล์นี้?')) {
+            return;
+        }
+
+        $.ajax({
+            url: '/api/delete-file/' + fileId,
+            type: 'DELETE',
+            success: function() {
+                location.reload();
+            },
+            error: function() {
+                alert('ไม่สามารถลบไฟล์ได้');
+            }
+        });
+    });
+
+    // Delete output
+    $('.delete-output').on('click', function() {
+        const outputId = $(this).data('output-id');
+        
+        if (!confirm('ยืนยันการลบไฟล์นี้?')) {
+            return;
+        }
+
+        $.ajax({
+            url: '/api/delete-output/' + outputId,
+            type: 'DELETE',
+            success: function() {
+                location.reload();
+            },
+            error: function() {
+                alert('ไม่สามารถลบไฟล์ได้');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}
