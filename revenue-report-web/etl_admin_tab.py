@@ -751,27 +751,6 @@ def show_fi_module():
         st.markdown("### Output Files")
         for key, file in fi_config['output_files'].items():
             st.text(f"💾 {key}: {file}")
-
-        # Download buttons (แสดงเฉพาะเมื่อ processing เสร็จแล้ว)
-        if get_fi_status() and st.session_state.etl_system.fi_output:
-            st.markdown("---")
-            st.markdown("**📥 Download:**")
-
-            output_files = st.session_state.etl_system.fi_output
-            for key, file_path in output_files.items():
-                if file_path and os.path.exists(file_path):
-                    file_name = os.path.basename(file_path)
-                    with open(file_path, 'rb') as f:
-                        file_ext = os.path.splitext(file_name)[1]
-                        mime_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if file_ext == '.xlsx' else 'text/csv'
-
-                        st.download_button(
-                            label=f"⬇️ {key}",
-                            data=f.read(),
-                            file_name=file_name,
-                            mime=mime_type,
-                            key=f"download_fi_{key}"
-                        )
     
     # Processing
     st.markdown("---")
@@ -781,18 +760,59 @@ def show_fi_module():
     
     # Results Display
     if get_fi_status():
+        st.markdown("---")
         st.markdown("### 📊 Processing Results")
-        
-        # Try to load and display summary
+
+        # Download Section - แสดงก่อนเพื่อให้เห็นชัดเจน
+        if st.session_state.etl_system and st.session_state.etl_system.fi_output:
+            st.markdown("#### 📥 Download Output Files")
+
+            output_files = st.session_state.etl_system.fi_output
+
+            # สร้าง columns สำหรับแต่ละไฟล์
+            cols = st.columns(len(output_files))
+
+            for idx, (key, file_path) in enumerate(output_files.items()):
+                with cols[idx]:
+                    if file_path and os.path.exists(file_path):
+                        file_name = os.path.basename(file_path)
+                        file_size = os.path.getsize(file_path) / 1024  # KB
+                        file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+
+                        # แสดงข้อมูลไฟล์
+                        st.markdown(f"**{key.upper()}**")
+                        st.caption(f"📄 {file_name}")
+                        st.caption(f"📦 {file_size:.1f} KB")
+                        st.caption(f"🕐 {file_time.strftime('%H:%M:%S')}")
+
+                        # ปุ่ม Download
+                        with open(file_path, 'rb') as f:
+                            file_ext = os.path.splitext(file_name)[1]
+                            mime_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if file_ext == '.xlsx' else 'text/csv'
+
+                            st.download_button(
+                                label=f"⬇️ Download",
+                                data=f.read(),
+                                file_name=file_name,
+                                mime=mime_type,
+                                key=f"download_fi_{key}",
+                                use_container_width=True
+                            )
+                    else:
+                        st.warning(f"❌ {key}: File not found")
+
+            st.markdown("---")
+
+        # Summary Display
         try:
-            excel_path = st.session_state.etl_system.fi_output['excel']
-            if os.path.exists(excel_path):
+            excel_path = st.session_state.etl_system.fi_output.get('excel')
+            if excel_path and os.path.exists(excel_path):
                 st.success(f"✅ Excel report generated: {os.path.basename(excel_path)}")
-                
+
                 # Load summary sheet
                 df_summary = pd.read_excel(excel_path, sheet_name="summary_other")
 
-                st.markdown("### Summary - รายได้/ค่าใช้จ่ายอื่น")
+                st.markdown("#### Summary - รายได้/ค่าใช้จ่ายอื่น")
 
                 # Format numbers with comma separator
                 df_display = df_summary.copy()
@@ -801,7 +821,7 @@ def show_fi_module():
                         df_display[col] = df_display[col].apply(lambda x: f'{x:,.2f}' if pd.notna(x) else '')
 
                 st.dataframe(df_display, use_container_width=True)
-                
+
                 # Create chart
                 fig = go.Figure()
                 fig.add_trace(go.Bar(
@@ -824,7 +844,7 @@ def show_fi_module():
                     height=400
                 )
                 st.plotly_chart(fig, use_container_width=True)
-                
+
         except Exception as e:
             st.warning(f"Unable to display results: {e}")
 
