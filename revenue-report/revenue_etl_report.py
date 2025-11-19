@@ -1338,10 +1338,10 @@ class RevenueETL:
         
         # สร้าง Summary Sheet
         self._create_anomaly_summary_sheet(wb, anomaly_results)
-        
+
         # สร้าง Detail Sheets สำหรับแต่ละระดับ
-        for level_name, df_result in anomaly_results.items():
-            self._create_anomaly_detail_sheet(wb, level_name, df_result)
+        for level_name, level_data in anomaly_results.items():
+            self._create_anomaly_detail_sheet(wb, level_name, level_data)
         
         # บันทึกไฟล์
         try:
@@ -1384,15 +1384,23 @@ class RevenueETL:
             ws.cell(row=row, column=1, value="ไม่มีผลลัพธ์การตรวจสอบ")
             return
 
-        for level_name, df_result in anomaly_results.items():
-            status_counts = df_result['ANOMALY_STATUS'].value_counts()
-            
+        for level_name, level_data in anomaly_results.items():
+            # เข้าถึง dataframe และ status_counts จาก dict structure ใหม่
+            df_result = level_data.get('dataframe')
+            if df_result is None:
+                continue
+
+            # ใช้ status_counts ที่คำนวณไว้แล้ว หรือคำนวณใหม่
+            status_counts = level_data.get('status_counts', {})
+            if not status_counts and 'ANOMALY_STATUS' in df_result.columns:
+                status_counts = df_result['ANOMALY_STATUS'].value_counts().to_dict()
+
             ws.cell(row=row, column=1, value=level_name.upper())
             ws.cell(row=row, column=2, value=len(df_result))
             ws.cell(row=row, column=3, value=status_counts.get('Normal', 0))
             ws.cell(row=row, column=4, value=status_counts.get('High_Spike', 0))
             ws.cell(row=row, column=5, value=status_counts.get('Low_Spike', 0))
-            
+
             other = (
                 status_counts.get('Negative_Value', 0) +
                 status_counts.get('Not_Enough_Data', 0) +
@@ -1417,22 +1425,27 @@ class RevenueETL:
         for col in ['B', 'C', 'D', 'E', 'F']:
             ws.column_dimensions[col].width = 15
     
-    def _create_anomaly_detail_sheet(self, wb, level_name, df_result):
+    def _create_anomaly_detail_sheet(self, wb, level_name, level_data):
         """สร้าง Detail Sheet สำหรับแต่ละระดับ"""
-        
+
         from openpyxl.styles import Font, PatternFill, Alignment
         from openpyxl.utils import get_column_letter
 
+        # เข้าถึง dataframe จาก dict structure ใหม่
+        df_result = level_data.get('dataframe')
+        if df_result is None:
+            return
+
         sheet_name = f'Anomaly_{level_name.title()}'
-        
+
         if sheet_name in wb.sheetnames:
             try:
                 del wb[sheet_name]
             except Exception as e:
                 self.log(f"  Warning: ไม่สามารถลบ sheet '{sheet_name}' เก่าได้: {e}")
-        
+
         ws = wb.create_sheet(sheet_name)
-        
+
         # กรองเฉพาะรายการที่ผิดปกติ
         df_anomaly = df_result[~df_result['ANOMALY_STATUS'].isin(['Normal', 'Not_Enough_Data'])].copy()
         
@@ -1538,12 +1551,14 @@ class RevenueETL:
             anomaly_results = self.detect_anomalies(df_final)
             
             # บันทึก anomaly results เป็น CSV
-            for level_name, df_result in anomaly_results.items():
-                if df_result.empty:
+            for level_name, level_data in anomaly_results.items():
+                # เข้าถึง dataframe จาก dict structure ใหม่
+                df_result = level_data.get('dataframe')
+                if df_result is None or df_result.empty:
                     self.log(f"ข้ามการบันทึก anomaly level '{level_name}' (ไม่มีข้อมูล)")
                     continue
                 output_file = os.path.join(
-                    self.paths["final_output"], 
+                    self.paths["final_output"],
                     f"anomaly_{level_name}_{self.config.YEAR}.csv"
                 )
                 df_result.to_csv(output_file, index=False)
