@@ -239,6 +239,42 @@
 $(document).ready(function() {
     let tomSelectInstance = null;
 
+    // Restore active tab from localStorage or URL hash
+    function restoreActiveTab() {
+        // Check URL hash first (higher priority)
+        const hash = window.location.hash;
+        if (hash === '#outputs') {
+            $('#outputs-tab').tab('show');
+            return;
+        }
+
+        // Check localStorage
+        const activeTab = localStorage.getItem('historyActiveTab');
+        if (activeTab) {
+            $(activeTab).tab('show');
+        }
+    }
+
+    // Save active tab to localStorage
+    function saveActiveTab(tabId) {
+        localStorage.setItem('historyActiveTab', tabId);
+        // Also update URL hash for bookmarking
+        if (tabId === '#outputs-tab') {
+            window.history.replaceState(null, null, '#outputs');
+        } else {
+            window.history.replaceState(null, null, '#uploads');
+        }
+    }
+
+    // Listen to tab changes
+    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function(e) {
+        const targetId = '#' + e.target.id;
+        saveActiveTab(targetId);
+    });
+
+    // Restore tab on page load
+    restoreActiveTab();
+
     // Edit upload metadata
     $('.edit-upload').on('click', function() {
         const fileId = $(this).data('file-id');
