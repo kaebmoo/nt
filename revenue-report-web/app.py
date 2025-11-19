@@ -18,6 +18,7 @@ from config_manager import get_config_manager
 from user_manager import get_user_manager
 from auth_manager import get_auth_manager
 from email_sender import get_email_sender
+# NOTE: etl_admin_tab imported lazily to avoid sys.path pollution
 
 
 # Page config
@@ -184,10 +185,11 @@ def show_main_app():
             "📧 Send Email",
             "👥 User Management",
             "⚙️ Configuration",
-            "📋 Email Logs"
+            "📋 Email Logs",
+            "🔧 ETL Admin"
         ])
 
-        browse_tab, email_tab, users_tab, config_tab, logs_tab = tabs
+        browse_tab, email_tab, users_tab, config_tab, logs_tab, etl_admin_tab = tabs
 
         with browse_tab:
             show_browse_reports_tab()
@@ -203,6 +205,11 @@ def show_main_app():
 
         with logs_tab:
             show_email_logs_tab()
+
+        with etl_admin_tab:
+            # Lazy import to avoid sys.path pollution at module load time
+            from etl_admin_tab import show_etl_admin_tab
+            show_etl_admin_tab()
 
     else:
         tabs = st.tabs([
@@ -227,7 +234,12 @@ def show_browse_reports_tab():
     # Get reports path
     reports_path = config.get_reports_path()
 
-    st.info(f"📂 Reports Location: `{reports_path}`")
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.info(f"📂 Reports Location: `{reports_path}`")
+    with col2:
+        if st.button("🔄 Refresh", key="refresh_reports", help="Refresh file list"):
+            st.rerun()
 
     # Check if path exists
     if not Path(reports_path).exists():

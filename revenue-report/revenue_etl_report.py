@@ -609,17 +609,18 @@ class RevenueETL:
         self.log("กำลัง apply special mapping rules...")
         for rule in self.config.SPECIAL_MAPPINGS:
             self.log(f"  - {rule['name']}")
-            
+
             # สร้าง condition
             condition = pd.Series([True] * len(df))
-            for col, val in rule['condition'].items():
-                condition &= (df[col] == val)
-            
+            for cond_col, cond_val in rule['condition'].items():
+                condition &= (df[cond_col] == cond_val)
+
             special_count = condition.sum()
             if special_count > 0:
-                # Apply mapping
-                for col, val in rule['mapping'].items():
-                    df.loc[condition, col] = val
+                # Apply mapping - แปลง Series เป็น numpy array เพื่อแก้ปัญหา "unhashable type: 'Series'"
+                condition_mask = condition.values
+                for map_col, map_val in rule['mapping'].items():
+                    df.loc[condition_mask, map_col] = map_val
                 self.log(f"    Applied to {special_count:,} รายการ")
         
         # บันทึกไฟล์

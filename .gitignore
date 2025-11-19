@@ -218,3 +218,4 @@ __marimo__/
 *.7z
 *.json
 /tmp
+prompt_log.txt
