@@ -1688,21 +1688,38 @@ class RevenueETL:
 
             # --- 1. สร้าง Anomaly Maps ---
             self.logger.info("    กำลังสร้าง Anomaly Maps...")
+            prod_map, serv_map, biz_map, grand_total_status = {}, {}, {}, ''
+
             try:
                 # Product Map
-                df_prod = anomaly_results['product']['dataframe'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'ANOMALY_STATUS']]
-                prod_map = df_prod.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY'])['ANOMALY_STATUS'].to_dict()
+                if 'product' in anomaly_results and 'dataframe' in anomaly_results['product']:
+                    df_prod = anomaly_results['product']['dataframe']
+                    if 'ANOMALY_STATUS' in df_prod.columns:
+                        prod_cols = ['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'ANOMALY_STATUS']
+                        df_prod_subset = df_prod[prod_cols]
+                        prod_map = df_prod_subset.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY'])['ANOMALY_STATUS'].to_dict()
 
                 # Service Map
-                df_serv = anomaly_results['service']['dataframe'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'ANOMALY_STATUS']]
-                serv_map = df_serv.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP'])['ANOMALY_STATUS'].to_dict()
+                if 'service' in anomaly_results and 'dataframe' in anomaly_results['service']:
+                    df_serv = anomaly_results['service']['dataframe']
+                    if 'ANOMALY_STATUS' in df_serv.columns:
+                        serv_cols = ['BUSINESS_GROUP', 'SERVICE_GROUP', 'ANOMALY_STATUS']
+                        df_serv_subset = df_serv[serv_cols]
+                        serv_map = df_serv_subset.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP'])['ANOMALY_STATUS'].to_dict()
 
                 # Business Map
-                df_biz = anomaly_results['business']['dataframe'][['BUSINESS_GROUP', 'ANOMALY_STATUS']]
-                biz_map = df_biz.set_index(['BUSINESS_GROUP'])['ANOMALY_STATUS'].to_dict()
+                if 'business' in anomaly_results and 'dataframe' in anomaly_results['business']:
+                    df_biz = anomaly_results['business']['dataframe']
+                    if 'ANOMALY_STATUS' in df_biz.columns:
+                        biz_cols = ['BUSINESS_GROUP', 'ANOMALY_STATUS']
+                        df_biz_subset = df_biz[biz_cols]
+                        biz_map = df_biz_subset.set_index(['BUSINESS_GROUP'])['ANOMALY_STATUS'].to_dict()
 
                 # Grand Total Status
-                grand_total_status = anomaly_results['grand_total']['dataframe']['ANOMALY_STATUS'].values[0]
+                if 'grand_total' in anomaly_results and 'dataframe' in anomaly_results['grand_total']:
+                    df_grand = anomaly_results['grand_total']['dataframe']
+                    if 'ANOMALY_STATUS' in df_grand.columns and len(df_grand) > 0:
+                        grand_total_status = df_grand['ANOMALY_STATUS'].values[0]
 
             except KeyError as e:
                 self.logger.warning(f"    Warning: ไม่พบ anomaly key {e}, จะใช้ค่าว่าง")
