@@ -198,22 +198,59 @@ class DataAnalyzer:
             'id_columns': []
         }
 
+        # First pass: Check for YYYY-MM format columns that should be treated as dates
+        year_month_candidates = []
+        for col_name, info in columns_info.items():
+            # Check if column contains YYYY-MM format
+            if info['detected_type'] == 'date':
+                date_format = info.get('date_format', '')
+                if date_format in ['%Y-%m', '%Y/%m']:
+                    year_month_candidates.append(col_name)
+
         for col_name, info in columns_info.items():
             col_upper = col_name.upper()
 
+            # Skip if this is a YYYY-MM column (should be treated as date, not year)
+            if col_name in year_month_candidates:
+                if not recommendations['date_column']:
+                    recommendations['date_column'] = col_name
+                continue
+
             # Detect YEAR column (exact match or starts with YEAR_)
+            # But NOT if it's a YYYY-MM format
             if col_upper == 'YEAR' or col_upper.startswith('YEAR_'):
                 if info['detected_type'] in ['numeric', 'categorical']:
-                    recommendations['year_column'] = col_name
-                    continue
+                    # Make sure it's actually a year (4-digit number between 1900-2100)
+                    sample_values = df[col_name].dropna().head(10)
+                    try:
+                        numeric_values = pd.to_numeric(sample_values, errors='coerce')
+                        if numeric_values.notna().any():
+                            min_val = numeric_values.min()
+                            max_val = numeric_values.max()
+                            if 1900 <= min_val <= 2100 and 1900 <= max_val <= 2100:
+                                recommendations['year_column'] = col_name
+                                continue
+                    except:
+                        pass
 
             # Detect MONTH column (exact match or starts with MONTH_)
+            # But NOT if it's a YYYY-MM format
             if col_upper == 'MONTH' or col_upper.startswith('MONTH_'):
                 if info['detected_type'] in ['numeric', 'categorical']:
-                    recommendations['month_column'] = col_name
-                    continue
+                    # Make sure it's actually a month (1-12)
+                    sample_values = df[col_name].dropna().head(10)
+                    try:
+                        numeric_values = pd.to_numeric(sample_values, errors='coerce')
+                        if numeric_values.notna().any():
+                            min_val = numeric_values.min()
+                            max_val = numeric_values.max()
+                            if 1 <= min_val <= 12 and 1 <= max_val <= 12:
+                                recommendations['month_column'] = col_name
+                                continue
+                    except:
+                        pass
 
-            # Detect DATE column
+            # Detect DATE column (including YYYY-MM-DD, YYYY-MM formats)
             if info['detected_type'] == 'date':
                 if not recommendations['date_column']:  # เอาตัวแรกที่เจอ
                     recommendations['date_column'] = col_name

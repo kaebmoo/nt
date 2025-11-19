@@ -245,27 +245,65 @@ class AuditRunner:
     def _prepare_data(self, df, config):
         """เตรียมข้อมูล (ใช้ logic จาก main_audit.py)"""
         print("   running: Data Preprocessing...")
-        
+
         df = df.copy()
-        
+
         # 1. สร้าง Column วันที่
-        col_year = config.get('col_year', 'YEAR')
-        col_month = config.get('col_month', 'MONTH')
+        col_year = config.get('col_year')
+        col_month = config.get('col_month')
+        date_column = config.get('date_column')  # Date column in YYYY-MM or YYYY-MM-DD format
         date_col_name = config.get('date_col_name', '__date_col__')
-        
-        if col_year in df.columns and col_month in df.columns:
-            df[date_col_name] = pd.to_datetime(
-                df[col_year].astype(str) + '-' +
-                df[col_month].astype(int).astype(str).str.zfill(2) + '-01',
-                errors='coerce'
-            )
-        # If data comes from crosstab converter, it might already have a 'DATE' column
+
+        # Priority 1: Use date_column if specified (YYYY-MM or YYYY-MM-DD format)
+        if date_column and date_column in df.columns:
+            df[date_col_name] = pd.to_datetime(df[date_column], errors='coerce')
+            # Extract year and month from date if not already present
+            if not col_year or col_year not in df.columns:
+                df['YEAR'] = df[date_col_name].dt.year
+                col_year = 'YEAR'
+            if not col_month or col_month not in df.columns:
+                df['MONTH'] = df[date_col_name].dt.month
+                col_month = 'MONTH'
+
+        # Priority 2: Combine year + month columns
+        elif col_year and col_year in df.columns and col_month and col_month in df.columns:
+            # Check if year/month are already in YYYY-MM format (combined)
+            sample_year = df[col_year].dropna().head(1).astype(str).iloc[0] if len(df[col_year].dropna()) > 0 else ''
+            sample_month = df[col_month].dropna().head(1).astype(str).iloc[0] if len(df[col_month].dropna()) > 0 else ''
+
+            # If year column looks like YYYY-MM format, use it directly
+            if '-' in sample_year or '/' in sample_year:
+                df[date_col_name] = pd.to_datetime(df[col_year], errors='coerce')
+                # Extract year and month
+                df['YEAR'] = df[date_col_name].dt.year
+                df['MONTH'] = df[date_col_name].dt.month
+                col_year = 'YEAR'
+                col_month = 'MONTH'
+            else:
+                # Normal case: separate year and month columns
+                try:
+                    df[date_col_name] = pd.to_datetime(
+                        df[col_year].astype(str) + '-' +
+                        df[col_month].astype(int).astype(str).str.zfill(2) + '-01',
+                        errors='coerce'
+                    )
+                except (ValueError, TypeError):
+                    # Fallback: try without int conversion
+                    df[date_col_name] = pd.to_datetime(
+                        df[col_year].astype(str) + '-' +
+                        df[col_month].astype(str).str.zfill(2) + '-01',
+                        errors='coerce'
+                    )
+
+        # Priority 3: If data comes from crosstab converter, it might already have a 'DATE' column
         elif 'DATE' in df.columns:
              df[date_col_name] = pd.to_datetime(df['DATE'], errors='coerce')
-             if col_year not in df.columns:
-                df[col_year] = df[date_col_name].dt.year
-             if col_month not in df.columns:
-                df[col_month] = df[date_col_name].dt.month
+             if not col_year or col_year not in df.columns:
+                df['YEAR'] = df[date_col_name].dt.year
+                col_year = 'YEAR'
+             if not col_month or col_month not in df.columns:
+                df['MONTH'] = df[date_col_name].dt.month
+                col_month = 'MONTH'
         else:
             # If date columns don't exist, create dummy dates
             df[date_col_name] = pd.to_datetime('2024-01-01')
