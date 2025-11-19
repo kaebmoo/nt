@@ -121,7 +121,7 @@
                             {% for col, info in analysis.columns.items() %}
                             {% if info.detected_type in ['categorical', 'text'] %}
                             <option value="{{ col }}" 
-                                    {% if col in ['GROUP_NAME', 'GL_CODE', 'GL_NAME', 'PRODUCT_KEY'] %}selected{% endif %}>
+                                    {% if info.is_recommended_dimension %}selected{% endif %}>
                                 {{ col }} ({{ info.unique_count }} unique)
                             </option>
                             {% endif %}
@@ -283,6 +283,29 @@
 {% block extra_js %}
 <script>
 $(document).ready(function() {
+    // Initialize TomSelect for better UX
+    const tsSettings = {
+        plugins: ['remove_button'],
+        create: false,
+    };
+    const singleSelectSettings = { create: false };
+
+    if ($('select[name="crosstab_id_vars"]').length) {
+        new TomSelect('select[name="crosstab_id_vars"]', tsSettings);
+    }
+    if ($('select[name="crosstab_dimensions"]').length) {
+        new TomSelect('select[name="crosstab_dimensions"]', tsSettings);
+    }
+    if ($('select[name="col_year"]').length) {
+        new TomSelect('select[name="col_year"]', singleSelectSettings);
+    }
+    if ($('select[name="col_month"]').length) {
+        new TomSelect('select[name="col_month"]', singleSelectSettings);
+    }
+    if ($('select[name="target_col"]').length) {
+        new TomSelect('select[name="target_col"]', singleSelectSettings);
+    }
+    
     // Submit configuration
     $('#configForm').on('submit', function(e) {
         e.preventDefault();

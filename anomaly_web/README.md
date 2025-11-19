@@ -1,238 +1,287 @@
 # Anomaly Detection Web Application
 
-ระบบตรวจจับความผิดปกติทางการเงินผ่าน Web Interface
+Web-based interface สำหรับตรวจหา Anomaly ในข้อมูลทางการเงิน โดยใช้ Hybrid Anomaly Detection Engine
 
-## คุณสมบัติหลัก
+## 🎯 คุณสมบัติหลัก
 
-### 1. รองรับ 2 รูปแบบข้อมูล
-- **Long Format**: ข้อมูลแบบแถว-คอลัมน์ (YEAR, MONTH, VALUE)
-- **Crosstab Format**: ข้อมูลแบบ Pivot Table (GL_CODE | ม.ค. | ก.พ. | ...)
+### 1. **Upload & Auto-Detection**
+- รองรับไฟล์ CSV, Excel (.xlsx, .xls)
+- รองรับทั้ง **Long Format** และ **Crosstab Format**
+- Auto-detect columns และแนะนำการตั้งค่า
+- แสดง preview ข้อมูล พร้อม statistics
 
-### 2. การวิเคราะห์อัตโนมัติ
-- **Time Series Analysis**: เปรียบเทียบกับประวัติในอดีต
-- **Peer Group Analysis**: เปรียบเทียบกับกลุ่มเพื่อน (IsolationForest)
+### 2. **Interactive Configuration**
+- เลือก input mode (Long/Crosstab)
+- เลือก columns สำหรับ dimensions, date, value
+- Auto-suggest numeric columns
+- กำหนด parameters สำหรับ anomaly detection
+- บันทึกและโหลด configuration templates
 
-### 3. ระบบจัดการไฟล์
-- อัพโหลดไฟล์ CSV, Excel (XLSX, XLS)
-- ตัวอย่างข้อมูลและวิเคราะห์อัตโนมัติ
+### 3. **Anomaly Detection**
+- **Time Series Analysis**: Rolling Window method
+- **Peer Group Analysis**: Isolation Forest (optional)
+- Real-time progress tracking
+- Crosstab report พร้อมการทาสีตาม anomaly
+
+### 4. **Output Management**
+- Auto-generate filename พร้อม timestamp
+- Download Excel report
+- Browse & manage input/output files
 - เก็บประวัติการทำงาน
-- จัดการ Tags และคำอธิบาย
 
-### 4. Configuration Templates
-- บันทึกการตั้งค่าที่ใช้บ่อย
-- โหลด Template ได้ทันที
-- แชร์ Configuration ระหว่างโปรเจกต์
+## 📦 Installation
 
-### 5. Progress Tracking
-- แสดง Real-time Progress
-- รายละเอียดการประมวลผลแต่ละขั้นตอน
-- การจัดการ Error
-
-## การติดตั้ง
-
-### 1. Clone Repository
+### 1. Clone repository
 ```bash
-cd /path/to/anomaly_web
+cd /Users/seal/Documents/GitHub/nt/anomaly_web
 ```
 
-### 2. สร้าง Virtual Environment
+### 2. สร้าง virtual environment
 ```bash
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# Mac/Linux
-source venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate  # สำหรับ Mac/Linux
+# หรือ
+venv\Scripts\activate  # สำหรับ Windows
 ```
 
-### 3. ติดตั้ง Dependencies
+### 3. ติดตั้ง dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. ตั้งค่า Environment Variables (Optional)
-สร้างไฟล์ `.env`:
-```
-SECRET_KEY=your-secret-key-here
-FLASK_ENV=development
+### 4. สร้าง directories ที่จำเป็น
+```bash
+mkdir -p data/uploads data/outputs data/configs
 ```
 
-## การรัน Application
+## 🚀 การใช้งาน
 
-### Development Mode
+### เริ่มต้น Web Application
+
 ```bash
 python app.py
 ```
 
-หรือใช้ Flask CLI:
-```bash
-export FLASK_APP=app.py
-export FLASK_ENV=development
-flask run
+เปิด browser ไปที่: `http://localhost:5000`
+
+### ขั้นตอนการใช้งาน
+
+#### **Step 1: Upload File**
+1. เลือกไฟล์ CSV หรือ Excel
+2. เลือก Input Mode:
+   - **Long Format**: ข้อมูลที่มี columns แยก (YEAR, MONTH, VALUE, ...)
+   - **Crosstab Format**: ข้อมูลรูปแบบ pivot table (rows เป็น items, columns เป็นเดือน)
+3. ใส่รายละเอียด (optional) เช่น "Expense Data 2024"
+4. กด Upload
+
+#### **Step 2: Preview & Configure**
+1. ดู preview ข้อมูล (100 แถวแรก)
+2. ระบบจะ auto-detect:
+   - **Numeric Columns**: แนะนำเป็น VALUE column
+   - **Date Columns**: แนะนำเป็น YEAR/MONTH
+   - **Text Columns**: แนะนำเป็น Dimensions
+3. ปรับแต่ง configuration:
+   - **Input Mode Settings**
+     - Long: เลือก YEAR, MONTH columns
+     - Crosstab: เลือก ID variables, date columns
+   - **Target Column**: column ที่ต้องการตรวจหา anomaly
+   - **Dimensions**: columns สำหรับจัดกลุ่มข้อมูล
+   - **Detection Options**:
+     - ✓ Time Series Analysis (แนะนำ)
+     - ✓ Peer Group Analysis (ใช้เวลานาน)
+   - **Parameters**:
+     - Rolling Window: 3-12 เดือน (default: 6)
+     - Min History: 3-6 เดือน (default: 3)
+
+4. (Optional) บันทึก configuration เป็น template เพื่อใช้งานภายหลัง
+
+#### **Step 3: Run Detection**
+1. กด "Run Anomaly Detection"
+2. ติดตามความคืบหน้า:
+   - Loading data...
+   - Preprocessing...
+   - Time Series Analysis... (30-50%)
+   - Peer Group Analysis... (50-70%) - ถ้าเปิดใช้งาน
+   - Generating Report... (70-95%)
+   - Saving... (95-100%)
+3. รอจนเสร็จ (อาจใช้เวลา 1-10 นาที ขึ้นอยู่กับขนาดข้อมูล)
+
+#### **Step 4: Download & Review**
+1. Download Excel file
+2. เปิดดู Report ที่มี sheets:
+   - **Crosstab_Report**: ตารางสรุป พร้อมทาสีตาม anomaly
+   - **Full_Audit_Log (Time)**: รายละเอียด Time Series anomalies
+   - **Full_Audit_Log (Peer)**: รายละเอียด Peer Group anomalies (ถ้ามี)
+   - **Peer_Crosstab_Report**: Peer Group crosstab (ถ้ามี)
+
+#### **Step 5: History & Re-run**
+1. เข้าหน้า "History"
+2. ดู input files และ output files ทั้งหมด
+3. สามารถ:
+   - Re-run anomaly detection ด้วย config ใหม่
+   - Download output files เก่า
+   - ลบไฟล์ที่ไม่ต้องการ
+
+## 📊 รูปแบบข้อมูลที่รองรับ
+
+### Long Format (แนะนำ)
+```csv
+YEAR,MONTH,GROUP_NAME,GL_CODE,GL_NAME,EXPENSE_VALUE
+2024,1,IT,5001,Software License,50000
+2024,1,IT,5002,Hardware,30000
+2024,2,IT,5001,Software License,52000
+...
 ```
 
-### Production Mode
-```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+### Crosstab Format
+```csv
+GROUP_NAME,GL_CODE,GL_NAME,2024-01,2024-02,2024-03
+IT,5001,Software License,50000,52000,51000
+IT,5002,Hardware,30000,32000,31000
+HR,6001,Salary,100000,105000,103000
+...
 ```
 
-เปิดเบราว์เซอร์ที่: `http://localhost:5000`
+## ⚙️ Configuration Parameters
 
-## โครงสร้างโฟลเดอร์
+### **Input Mode Settings**
+
+#### Long Format
+- `col_year`: Column ที่เก็บปี (default: "YEAR")
+- `col_month`: Column ที่เก็บเดือน (default: "MONTH")
+
+#### Crosstab Format
+- `crosstab_id_vars`: Columns ที่เป็น dimensions (e.g., ["GROUP_NAME", "GL_CODE"])
+- `crosstab_value_name`: ชื่อ column สำหรับค่า (default: "VALUE")
+- `crosstab_mode`: วิธีแปลง date columns ("auto", "date", "sequential")
+- `crosstab_skiprows`: จำนวนแถวที่ข้ามด้านบน (default: 0)
+
+### **Detection Settings**
+
+- `target_col`: Column ที่ต้องการตรวจหา anomaly
+- `crosstab_dimensions`: Dimensions สำหรับ Crosstab Report
+- `audit_ts_dimensions`: Dimensions สำหรับ Time Series Analysis
+- `audit_peer_group_by`: Dimensions สำหรับ Peer Group
+- `audit_peer_item_id`: Column ที่เป็น Item ID สำหรับ Peer Group
+
+### **Analysis Options**
+
+- `run_crosstab_report`: สร้าง Crosstab Report (default: true)
+- `run_full_audit_log`: บันทึก Audit Logs (default: true)
+- `run_time_series_analysis`: รัน Time Series Analysis (default: true)
+- `run_peer_group_analysis`: รัน Peer Group Analysis (default: false)
+
+### **Parameters**
+
+- `crosstab_min_history`: จำนวนเดือนขั้นต่ำสำหรับ crosstab (default: 3)
+- `audit_ts_window`: Rolling window สำหรับ time series (default: 6)
+
+## 🎨 Color Legend
+
+### Crosstab Report
+- 🔴 **แดง (Negative_Value)**: ยอดติดลบ
+- 🟥 **แดงอ่อน (High_Spike)**: ยอดพุ่งสูงผิดปกติ
+- 🟨 **เหลือง (Low_Spike)**: ยอดตกต่ำผิดปกติ
+- 🟢 **เขียว (New_Item)**: รายการใหม่ (ข้อมูลไม่พอ)
+
+### Peer Group Crosstab
+- 🟥 **แดงอ่อน**: ค่าสูงผิดปกติเทียบกับกลุ่มเพื่อน
+- 🟨 **เหลือง**: ค่าต่ำผิดปกติเทียบกับกลุ่มเพื่อน
+
+## 📁 โครงสร้าง Project
 
 ```
 anomaly_web/
-├── app.py                      # Main Flask application
-├── config.py                   # Configuration
-├── requirements.txt            # Dependencies
-├── README.md                   # คู่มือนี้
-│
-├── utils/                      # Utility modules
+├── app.py                      # Flask application
+├── config.py                   # Configuration settings
+├── requirements.txt            # Python dependencies
+├── README.md                   # เอกสารนี้
+├── utils/                      # Utilities
 │   ├── __init__.py
-│   ├── file_handler.py        # จัดการไฟล์
-│   ├── data_analyzer.py       # วิเคราะห์ข้อมูล
-│   ├── config_manager.py      # จัดการ config
-│   └── audit_runner.py        # รัน anomaly detection
-│
+│   ├── anomaly_engine.py       # Anomaly detection engine
+│   ├── anomaly_reporter.py     # Excel report generator
+│   ├── audit_runner.py         # Main audit runner
+│   ├── file_handler.py         # File management
+│   ├── data_analyzer.py        # Data analysis utilities
+│   └── config_manager.py       # Configuration management
 ├── templates/                  # HTML templates
-│   ├── base.html
 │   ├── index.html
 │   ├── upload.html
 │   ├── preview.html
 │   ├── configure.html
 │   ├── process.html
 │   └── history.html
-│
-├── static/                     # Static files
+├── static/                     # Static files (CSS, JS)
 │   ├── css/
-│   │   └── style.css
 │   └── js/
-│       └── main.js
-│
-├── uploads/                    # Uploaded files (auto-created)
-├── outputs/                    # Generated reports (auto-created)
-└── configs/                    # Saved configurations (auto-created)
+└── data/                       # Data storage
+    ├── uploads/                # Input files
+    ├── outputs/                # Output files
+    └── configs/                # Saved configurations
 ```
 
-## วิธีใช้งาน
+## 🔧 Troubleshooting
 
-### 1. อัพโหลดไฟล์
-- คลิก "อัพโหลดไฟล์"
-- เลือกไฟล์ CSV หรือ Excel
-- เลือกรูปแบบข้อมูล (Long/Crosstab)
-- เพิ่มคำอธิบาย (Optional)
-
-### 2. ดูตัวอย่างข้อมูล
-- ระบบจะแสดงตัวอย่างข้อมูล
-- วิเคราะห์อัตโนมัติและแนะนำการตั้งค่า
-
-### 3. กำหนดค่า
-- เลือก Columns สำหรับวันที่และค่าตัวเลข
-- เลือกมิติข้อมูล (Dimensions)
-- เปิด/ปิดการวิเคราะห์แต่ละประเภท
-- บันทึกเป็น Template (Optional)
-
-### 4. รับรายงาน
-- ระบบจะประมวลผลและแสดง Progress
-- ดาวน์โหลดรายงาน Excel เมื่อเสร็จสิ้น
-
-### 5. จัดการประวัติ
-- ดูไฟล์ Input และ Output ทั้งหมด
-- Re-run การวิเคราะห์ด้วยค่าใหม่
-- ลบไฟล์ที่ไม่ต้องการ
-
-## การรวม Main Audit Logic
-
-**สำคัญ**: ไฟล์นี้เป็นเพียง **Framework** สำหรับ Web Application  
-คุณต้องเพิ่ม Logic จาก `main_audit.py` ดั้งเดิมของคุณเข้ามา:
-
-### ไฟล์ที่ต้อง Copy/Import:
-1. `anomaly_engine.py` - CrosstabGenerator, FullAuditEngine
-2. `anomaly_reporter.py` - ExcelReporter
-3. `crosstab_converter.py` - CrosstabConverter
-
-### ตำแหน่งที่ต้องแก้ไข:
-- `utils/audit_runner.py` - เพิ่ม logic การรัน audit
-- เปลี่ยนจาก placeholder → ใช้ engine จริง
-
-### ตัวอย่างการแก้ไข:
-```python
-# ใน audit_runner.py
-from anomaly_engine import FullAuditEngine
-from anomaly_reporter import ExcelReporter
-
-def _run_time_series(self, df, config, callback=None):
-    engine = FullAuditEngine(df)
-    return engine.audit_time_series_all_months(...)
+### ปัญหา: "Module not found"
+```bash
+# ตรวจสอบว่าติดตั้ง dependencies ครบแล้ว
+pip install -r requirements.txt
 ```
 
-## Configuration Schema
-
-```json
-{
-  "input_mode": "long|crosstab",
-  "col_year": "YEAR",
-  "col_month": "MONTH",
-  "target_col": "EXPENSE_VALUE",
-  "crosstab_dimensions": ["GROUP_NAME", "GL_CODE"],
-  "run_time_series_analysis": true,
-  "run_peer_group_analysis": false,
-  "audit_ts_window": 6,
-  "crosstab_min_history": 3
-}
+### ปัญหา: "Permission denied"
+```bash
+# ตรวจสอบ permissions ของ directories
+chmod -R 755 data/
 ```
 
-## API Endpoints
+### ปัญหา: Peer Group ใช้เวลานานมาก
+- ปิดการใช้งาน Peer Group Analysis ในกรณีที่ข้อมูลมีขนาดใหญ่ (>100,000 rows)
+- หรือลดจำนวน dimensions ที่ใช้ใน `audit_peer_group_by`
 
-### File Management
-- `POST /upload` - อัพโหลดไฟล์
-- `GET /preview/<file_id>` - ดูตัวอย่างข้อมูล
-- `DELETE /api/delete-file/<file_id>` - ลบไฟล์
+### ปัญหา: Memory Error
+- ลดขนาดไฟล์ input โดยกรองเฉพาะข้อมูลที่จำเป็น
+- เพิ่ม memory limit สำหรับ Python
+- ปิดการใช้งาน Peer Group Analysis
 
-### Configuration
-- `GET /configure/<file_id>` - หน้ากำหนดค่า
-- `POST /configure/<file_id>` - บันทึกการตั้งค่า
-- `POST /api/save-template` - บันทึก template
-- `GET /api/load-template/<name>` - โหลด template
+## 📝 Notes
 
-### Processing
-- `POST /api/run-audit/<file_id>` - เริ่มประมวลผล
-- `GET /api/progress/<file_id>` - ดู progress
+1. **ความเร็ว**:
+   - Time Series: ~1,000-10,000 rows/second
+   - Peer Group: ~100-1,000 rows/second (ช้ากว่ามาก)
 
-### Download
-- `GET /download/<output_id>` - ดาวน์โหลด report
+2. **ขนาดไฟล์แนะนำ**:
+   - < 1 MB: รวดเร็วมาก
+   - 1-10 MB: ใช้เวลาปานกลาง (1-3 นาที)
+   - 10-100 MB: ใช้เวลานาน (3-10 นาที)
+   - > 100 MB: ควรแบ่งไฟล์หรือใช้ command line version
 
-## Troubleshooting
+3. **Best Practices**:
+   - ใช้ Long Format สำหรับข้อมูลที่มีหลาย dimensions
+   - ใช้ Crosstab Format สำหรับข้อมูลที่ต้องการดูแนวโน้มตามเวลา
+   - เปิด Peer Group เฉพาะเมื่อต้องการเปรียบเทียบกับกลุ่มเพื่อน
+   - บันทึก configuration เป็น template สำหรับงานที่ทำซ้ำ
 
-### ปัญหา: ไม่สามารถอัพโหลดไฟล์ขนาดใหญ่
-- แก้ไข `MAX_CONTENT_LENGTH` ใน `config.py`
+## 🤝 การพัฒนาเพิ่มเติม
 
-### ปัญหา: Progress ไม่อัปเดต
-- ตรวจสอบ JavaScript Console
-- ใช้ Redis สำหรับ Progress Tracking (แทน in-memory)
+### Features ที่อาจเพิ่มในอนาคต
+- [ ] Async processing with Celery/Redis
+- [ ] Email notification เมื่อเสร็จ
+- [ ] Dashboard สำหรับดู statistics
+- [ ] Export to PDF
+- [ ] Multi-user support with authentication
+- [ ] Schedule automated runs
+- [ ] API endpoints for integration
 
-### ปัญหา: Peer Group Analysis ช้ามาก
-- ลดขนาดข้อมูล
-- ปิด Peer Group Analysis
-- ใช้ Async Task Queue (Celery)
+## 📞 Support
 
-## TODO / Future Enhancements
+หากพบปัญหาหรือมีข้อสงสัย สามารถ:
+1. ตรวจสอบ logs ใน console
+2. อ่าน error messages ใน UI
+3. ตรวจสอบ input file format
+4. ลอง configuration ใหม่
 
-- [ ] Async Task Processing (Celery + Redis)
-- [ ] User Authentication
-- [ ] Multi-user Support
-- [ ] Email Notifications
-- [ ] Scheduled Reports
-- [ ] API Documentation (Swagger)
-- [ ] Docker Support
-- [ ] Cloud Storage Integration
+---
 
-## License
-
-Internal Use Only - NT Organization
-
-## ผู้พัฒนา
-
-Pornthep (Seal)  
-2024
+**Version**: 1.0.0  
+**Last Updated**: 2024-11-19  
+**Author**: Pornthep (seal)

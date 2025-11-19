@@ -177,7 +177,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for idx, row in data.sample_data|slice(20) %}
+                                {% for row in data.sample_data %}
                                 <tr>
                                     <td>{{ loop.index }}</td>
                                     {% for col in data.columns %}

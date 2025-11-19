@@ -11,6 +11,7 @@ import json
 import pandas as pd
 from datetime import datetime
 import uuid
+from threading import Thread
 
 from utils.file_handler import FileHandler
 from utils.data_analyzer import DataAnalyzer
@@ -24,7 +25,7 @@ app.config.from_object('config.Config')
 file_handler = FileHandler(app.config['UPLOAD_FOLDER'], app.config['OUTPUT_FOLDER'])
 data_analyzer = DataAnalyzer()
 config_manager = ConfigManager(app.config['CONFIG_FOLDER'])
-audit_runner = AuditRunner()
+audit_runner = AuditRunner(app.config['PROGRESS_FOLDER'])
 
 # ============================================================================
 # HOME PAGE
@@ -48,15 +49,15 @@ def upload():
     # Handle file upload
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
-    
+
     # Get metadata
     input_mode = request.form.get('input_mode', 'long')
     description = request.form.get('description', '')
-    
+
     try:
         # Save file with metadata
         file_info = file_handler.save_upload(
@@ -64,15 +65,19 @@ def upload():
             input_mode=input_mode,
             description=description
         )
-        
+
         # Store in session
         session['current_file'] = file_info
-        
-        return redirect(url_for('preview', file_id=file_info['file_id']))
-        
+
+        # Return JSON response with redirect URL for AJAX
+        return jsonify({
+            'success': True,
+            'redirect': url_for('preview', file_id=file_info['file_id']),
+            'file_id': file_info['file_id']
+        })
+
     except Exception as e:
-        flash(f'Error uploading file: {str(e)}', 'error')
-        return redirect(url_for('upload'))
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/preview/<file_id>')
 def preview(file_id):
@@ -105,7 +110,8 @@ def preview(file_id):
         return render_template('preview.html', data=preview_data)
         
     except Exception as e:
-        flash(f'Error loading preview: {str(e)}', 'error')
+        app.logger.error(f"Error loading preview for file_id {file_id}:", exc_info=True)
+        flash(f'เกิดข้อผิดพลาดในการแสดงตัวอย่างข้อมูล: {str(e)}. กรุณาตรวจสอบว่าไฟล์เป็น CSV ที่ถูกต้องและลองอีกครั้ง', 'error')
         return redirect(url_for('upload'))
 
 # ============================================================================
@@ -196,6 +202,44 @@ def process(file_id):
     
     return render_template('process.html', file_info=file_info, config=config)
 
+def _run_audit_in_background(app_context, file_id, file_info, config, output_path):
+    with app_context:
+        try:
+            # Run audit
+            result = audit_runner.run_audit(
+                input_file=file_info['filepath'],
+                output_file=output_path,
+                config=config,
+                callback=lambda progress: update_progress(app_context, file_id, progress)
+            )
+
+            # Save output info
+            output_info = file_handler.save_output_info(
+                file_id=file_id,
+                output_filename=os.path.basename(output_path),
+                output_path=output_path,
+                config=config,
+                result=result
+            )
+
+            # Update final progress with output_id
+            # Frontend will build the download URL from output_id
+            update_progress(app_context, file_id, {
+                'status': 'completed',
+                'progress': 100,
+                'message': 'Completed successfully',
+                'result': result,
+                'output_id': output_info['output_id']
+            })
+
+        except Exception as e:
+            # Log the error or handle it appropriately
+            print(f"Error in background audit for file_id {file_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            # Optionally, update progress with an error status
+            update_progress(app_context, file_id, {'status': 'error', 'message': str(e)})
+
 @app.route('/api/run-audit/<file_id>', methods=['POST'])
 def run_audit(file_id):
     """รัน anomaly detection (Async with progress tracking)"""
@@ -213,28 +257,15 @@ def run_audit(file_id):
         output_filename = f"{base_name}_audit_{timestamp}.xlsx"
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
         
-        # Run audit (this should be async in production)
-        result = audit_runner.run_audit(
-            input_file=file_info['filepath'],
-            output_file=output_path,
-            config=config,
-            callback=lambda progress: update_progress(file_id, progress)
-        )
-        
-        # Save output info
-        output_info = file_handler.save_output_info(
-            file_id=file_id,
-            output_filename=output_filename,
-            output_path=output_path,
-            config=config,
-            result=result
-        )
+        # Start audit in a new thread
+        app_context = app.app_context()
+        thread = Thread(target=_run_audit_in_background, args=(app_context, file_id, file_info, config, output_path))
+        thread.start()
         
         return jsonify({
             'success': True,
-            'output_id': output_info['output_id'],
-            'filename': output_filename,
-            'download_url': url_for('download_output', output_id=output_info['output_id'])
+            'message': 'Audit started in background',
+            'output_filename': output_filename # Provide filename for client-side tracking if needed
         })
         
     except Exception as e:
@@ -246,9 +277,10 @@ def get_progress(file_id):
     progress = audit_runner.get_progress(file_id)
     return jsonify(progress)
 
-def update_progress(file_id, progress):
+def update_progress(app_context, file_id, progress):
     """Update progress (callback function)"""
-    audit_runner.update_progress(file_id, progress)
+    with app_context:
+        audit_runner.update_progress(file_id, progress)
 
 # ============================================================================
 # DOWNLOAD & HISTORY
@@ -280,6 +312,26 @@ def history():
     outputs = file_handler.list_outputs()
     
     return render_template('history.html', uploads=uploads, outputs=outputs)
+
+@app.route('/api/upload-metadata/<file_id>', methods=['POST'])
+def update_upload_metadata(file_id):
+    """อัพเดท description และ tags ของไฟล์ input"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Invalid JSON'}), 400
+        
+    description = data.get('description')
+    tags = data.get('tags') # Expect a list of strings
+
+    try:
+        success = file_handler.update_upload_metadata(file_id, description=description, tags=tags)
+        if success:
+            return jsonify({'success': True, 'message': 'Metadata updated successfully.'})
+        else:
+            return jsonify({'error': 'File not found'}), 404
+    except Exception as e:
+        app.logger.error(f"Error updating metadata for file_id {file_id}:", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/delete-file/<file_id>', methods=['DELETE'])
 def delete_file(file_id):
@@ -321,4 +373,4 @@ if __name__ == '__main__':
     os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
     os.makedirs(app.config['CONFIG_FOLDER'], exist_ok=True)
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=9000)

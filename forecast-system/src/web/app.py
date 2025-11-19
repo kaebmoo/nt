@@ -383,7 +383,7 @@ elif forecast_type == "Expense":
                         st.success("✅ Fixed cost forecast completed!")
 
                     elif expense_type == "By GL Code":
-                        if 'gl_code' in df.columns:
+                        if 'GL_CODE' in df.columns:
                             results = expense_engine.forecast_by_gl_code(
                                 df=df,
                                 gl_column='GL_CODE',

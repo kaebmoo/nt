@@ -8,14 +8,21 @@ import os
 import sys
 import json
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import traceback
+
+# Import anomaly detection engines
+from .anomaly_engine import CrosstabGenerator, FullAuditEngine
+from .anomaly_reporter import ExcelReporter
+from .crosstab_converter import CrosstabConverter
 
 class AuditRunner:
     """รัน anomaly detection พร้อมติดตาม progress"""
     
-    def __init__(self):
-        self.progress_data = {}
+    def __init__(self, progress_folder):
+        self.progress_folder = progress_folder
+        os.makedirs(self.progress_folder, exist_ok=True)
     
     def run_audit(self, input_file, output_file, config, callback=None):
         """
@@ -30,7 +37,7 @@ class AuditRunner:
         Returns:
             dict: ผลลัพธ์การรัน
         """
-        file_id = config.get('_metadata', {}).get('file_id', 'unknown')
+        file_id = config.get('file_id', 'unknown')
         
         try:
             # Initialize progress
@@ -49,6 +56,9 @@ class AuditRunner:
             }, callback)
             
             df = self._load_data(input_file, config)
+            if df is None:
+                raise ValueError("Failed to load or convert data.")
+
             
             # Step 2: Preprocess (20%)
             self._update_progress(file_id, {
@@ -59,8 +69,14 @@ class AuditRunner:
             
             df_clean = self._prepare_data(df, config)
             
-            # Step 3: Run Time Series Analysis (30-60%)
-            ts_log = pd.DataFrame()
+            # Initialize reporter
+            reporter = ExcelReporter(output_file)
+            
+            # ตัวแปรเก็บ Log
+            df_ts_log = pd.DataFrame()
+            df_peer_log = pd.DataFrame()
+            
+            # Step 3: Run Time Series Analysis (30-50%)
             if config.get('run_time_series_analysis', False):
                 self._update_progress(file_id, {
                     'status': 'time_series',
@@ -68,38 +84,115 @@ class AuditRunner:
                     'message': 'Running Time Series Analysis...'
                 }, callback)
                 
-                ts_log = self._run_time_series(df_clean, config, callback=lambda p: self._update_progress(
-                    file_id, {'progress': 30 + p/2}, callback
-                ))
+                df_ts_log = self._run_time_series(df_clean, config)
+                
+                self._update_progress(file_id, {
+                    'progress': 50,
+                    'message': f'Time Series: Found {len(df_ts_log)} anomalies'
+                }, callback)
             
-            # Step 4: Run Peer Group Analysis (60-80%)
-            peer_log = pd.DataFrame()
+            # Step 4: Run Peer Group Analysis (50-70%)
             if config.get('run_peer_group_analysis', False):
                 self._update_progress(file_id, {
                     'status': 'peer_group',
-                    'progress': 60,
-                    'message': 'Running Peer Group Analysis...'
+                    'progress': 50,
+                    'message': 'Running Peer Group Analysis (this may take a while)...'
                 }, callback)
                 
-                peer_log = self._run_peer_group(df_clean, config, callback=lambda p: self._update_progress(
-                    file_id, {'progress': 60 + p/5}, callback
-                ))
+                df_peer_log = self._run_peer_group(df_clean, config)
+                
+                self._update_progress(file_id, {
+                    'progress': 70,
+                    'message': f'Peer Group: Found {len(df_peer_log)} anomalies'
+                }, callback)
             
-            # Step 5: Generate Report (80-95%)
+            # Step 5: Generate Crosstab Report (70-80%)
+            if config.get('run_crosstab_report', True):
+                self._update_progress(file_id, {
+                    'status': 'crosstab_report',
+                    'progress': 70,
+                    'message': 'Generating Crosstab Report...'
+                }, callback)
+                
+                self._generate_crosstab_report(df_clean, df_ts_log, config, reporter)
+                
+                self._update_progress(file_id, {
+                    'progress': 80
+                }, callback)
+            
+            # Step 6: Add Peer Crosstab (if applicable)
+            if config.get('run_peer_group_analysis', False) and not df_peer_log.empty:
+                self._update_progress(file_id, {
+                    'status': 'peer_crosstab',
+                    'progress': 80,
+                    'message': 'Adding Peer Group Crosstab...'
+                }, callback)
+                
+                reporter.add_peer_crosstab_sheet(
+                    df_clean=df_clean,
+                    df_peer_log=df_peer_log,
+                    group_dims=config.get('audit_peer_group_by', []),
+                    item_id_col=config.get('audit_peer_item_id', 'ITEM_ID'),
+                    target_col=config.get('target_col', 'VALUE'),
+                    date_col=config.get('date_col_name', '__date_col__')
+                )
+                
+                self._update_progress(file_id, {
+                    'progress': 85
+                }, callback)
+            
+            # Step 7: Add Audit Logs (85-95%)
+            if config.get('run_full_audit_log', True):
+                self._update_progress(file_id, {
+                    'status': 'audit_logs',
+                    'progress': 85,
+                    'message': 'Adding Audit Logs...'
+                }, callback)
+                
+                # Time Series Log
+                if config.get('run_time_series_analysis', False) and not df_ts_log.empty:
+                    date_col_name = config.get('date_col_name', '__date_col__')
+                    target_col = config.get('target_col', 'VALUE')
+                    audit_ts_dimensions = config.get('audit_ts_dimensions', [])
+                    
+                    reporter.add_audit_log_sheet(
+                        df_ts_log, 
+                        "Full_Audit_Log (Time)",
+                        cols_to_show=[date_col_name, 'ISSUE_DESC', target_col, 'COMPARED_WITH'] + audit_ts_dimensions
+                    )
+                
+                # Peer Group Log
+                if config.get('run_peer_group_analysis', False) and not df_peer_log.empty:
+                    date_col_name = config.get('date_col_name', '__date_col__')
+                    target_col = config.get('target_col', 'VALUE')
+                    audit_peer_group_by = config.get('audit_peer_group_by', [])
+                    audit_peer_item_id = config.get('audit_peer_item_id', 'ITEM_ID')
+                    
+                    reporter.add_audit_log_sheet(
+                        df_peer_log, 
+                        "Full_Audit_Log (Peer)",
+                        cols_to_show=[date_col_name, 'ISSUE_DESC', target_col, 'COMPARED_WITH'] + audit_peer_group_by + [audit_peer_item_id]
+                    )
+                
+                self._update_progress(file_id, {
+                    'progress': 95
+                }, callback)
+            
+            # Step 8: Save Report (95-100%)
             self._update_progress(file_id, {
-                'status': 'generating_report',
-                'progress': 80,
-                'message': 'Generating Excel report...'
+                'status': 'saving',
+                'progress': 95,
+                'message': 'Saving Excel report...'
             }, callback)
             
-            self._generate_report(df_clean, ts_log, peer_log, output_file, config)
+            reporter.save()
             
             # Complete
             result = {
                 'status': 'completed',
                 'total_rows': len(df_clean),
-                'ts_anomalies': len(ts_log) if not ts_log.empty else 0,
-                'peer_anomalies': len(peer_log) if not peer_log.empty else 0,
+                'ts_anomalies': len(df_ts_log) if not df_ts_log.empty else 0,
+                'peer_anomalies': len(df_peer_log) if not df_peer_log.empty else 0,
                 'output_file': output_file
             }
             
@@ -126,132 +219,238 @@ class AuditRunner:
             raise
     
     def _load_data(self, input_file, config):
-        """โหลดข้อมูล"""
+        """โหลดข้อมูล และแปลง crosstab ถ้าจำเป็น"""
         input_mode = config.get('input_mode', 'long')
         
         if input_mode == 'crosstab':
-            # Convert crosstab to long format
-            from crosstab_converter import CrosstabConverter
-            
-            temp_output = input_file + '_temp_long.csv'
-            converter = CrosstabConverter(input_file, temp_output)
-            
-            converter.convert(
+            print("   Converting Crosstab to Long format...")
+            converter = CrosstabConverter(input_file=input_file)
+            df = converter.convert(
                 sheet_name=config.get('crosstab_sheet_name', 0),
                 skiprows=config.get('crosstab_skiprows', 0),
                 id_vars=config.get('crosstab_id_vars', []),
                 value_name=config.get('crosstab_value_name', 'VALUE'),
                 mode=config.get('crosstab_mode', 'auto')
             )
-            
-            df = pd.read_csv(temp_output)
-            # Clean up temp file
-            if os.path.exists(temp_output):
-                os.remove(temp_output)
         else:
             # Direct long format
-            df = pd.read_csv(input_file)
+            print("   Loading Long format data...")
+            if input_file.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(input_file)
+            else:
+                df = pd.read_csv(input_file)
         
         return df
     
     def _prepare_data(self, df, config):
         """เตรียมข้อมูล (ใช้ logic จาก main_audit.py)"""
-        # Import prepare_data function from main_audit
-        # หรือ copy logic มาใส่ตรงนี้
+        print("   running: Data Preprocessing...")
         
-        # Simplified version - ควร import จาก main_audit.py จริงๆ
         df = df.copy()
         
-        # Create date column
+        # 1. สร้าง Column วันที่
         col_year = config.get('col_year', 'YEAR')
         col_month = config.get('col_month', 'MONTH')
+        date_col_name = config.get('date_col_name', '__date_col__')
         
         if col_year in df.columns and col_month in df.columns:
-            df['__date_col__'] = pd.to_datetime(
+            df[date_col_name] = pd.to_datetime(
                 df[col_year].astype(str) + '-' +
-                df[col_month].astype(int).astype(str).str.zfill(2) + '-01'
+                df[col_month].astype(int).astype(str).str.zfill(2) + '-01',
+                errors='coerce'
             )
+        # If data comes from crosstab converter, it might already have a 'DATE' column
+        elif 'DATE' in df.columns:
+             df[date_col_name] = pd.to_datetime(df['DATE'], errors='coerce')
+             if col_year not in df.columns:
+                df[col_year] = df[date_col_name].dt.year
+             if col_month not in df.columns:
+                df[col_month] = df[date_col_name].dt.month
+        else:
+            # If date columns don't exist, create dummy dates
+            df[date_col_name] = pd.to_datetime('2024-01-01')
+            print(f"   ⚠️ Warning: Date columns not found. Using dummy dates.")
         
-        # Clean numeric column
+        # 2. Clean numeric column
         target_col = config.get('target_col', 'VALUE')
         if target_col in df.columns:
-            df[target_col] = self._clean_numeric(df[target_col])
+            df[target_col] = self._clean_numeric_column(df[target_col])
+        else:
+            # This can happen if crosstab_value_name doesn't match the melt result
+            value_name_from_config = config.get('crosstab_value_name', 'VALUE')
+            if value_name_from_config in df.columns:
+                 df[target_col] = self._clean_numeric_column(df[value_name_from_config])
+                 if target_col != value_name_from_config:
+                     df.drop(columns=[value_name_from_config], inplace=True)
+            else:
+                print(f"   ⚠️ Warning: Target column '{target_col}' not found.")
+                df[target_col] = 0
         
-        # Fill dimensions
-        all_dims = set(config.get('crosstab_dimensions', []) + 
-                      config.get('audit_ts_dimensions', []) +
-                      config.get('audit_peer_group_by', []))
+        # 3. Fill dimensions with 'N/A' for missing values
+        all_dims = set(
+            config.get('crosstab_dimensions', []) + 
+            config.get('audit_ts_dimensions', []) +
+            config.get('audit_peer_group_by', [])
+        )
+        if config.get('audit_peer_item_id'):
+            all_dims.add(config.get('audit_peer_item_id'))
+
         
         for col in all_dims:
             if col in df.columns:
                 df[col] = df[col].fillna('N/A')
+            else:
+                print(f"   ⚠️ Warning: Dimension '{col}' not found in data.")
+                df[col] = 'N/A'
         
+        print(f"   ✓ Data prepared: {len(df):,} rows")
         return df
     
-    def _clean_numeric(self, series):
-        """ทำความสะอาดตัวเลข (accounting format)"""
+    def _clean_numeric_column(self, series):
+        """
+        ทำความสะอาดคอลัมน์ตัวเลข รองรับรูปแบบบัญชี
+        
+        รองรับ:
+        - Comma: 3,000.00 → 3000.00
+        - Parentheses (negative): (3000) → -3000
+        - Combined: (30,000.00) → -30000.00
+        - Whitespace: " 3000 " → 3000
+        - Currency: $3,000 หรือ ฿3,000 → 3000
+        """
+        # แปลงเป็น string
         s = series.astype(str)
+        
+        # ตรวจสอบวงเล็บ (ค่าลบในระบบบัญชี)
         is_negative = s.str.contains(r'\(.*\)', regex=True, na=False)
+        
+        # ลบอักขระพิเศษ (เว้น . และ -)
         s = s.str.replace(r'[,\(\)\s$฿%]', '', regex=True)
+        
+        # แปลงเป็นตัวเลข
         s = pd.to_numeric(s, errors='coerce').fillna(0)
+        
+        # ใส่เครื่องหมายลบสำหรับค่าที่อยู่ในวงเล็บ
         s.loc[is_negative] = -s.loc[is_negative].abs()
+        
         return s
     
-    def _run_time_series(self, df, config, callback=None):
+    def _run_time_series(self, df, config):
         """รัน Time Series Analysis"""
-        # Import และใช้ FullAuditEngine จาก anomaly_engine.py
-        # สำหรับ demo - return empty DataFrame
-        return pd.DataFrame()
-    
-    def _run_peer_group(self, df, config, callback=None):
-        """รัน Peer Group Analysis"""
-        # Import และใช้ FullAuditEngine จาก anomaly_engine.py
-        # สำหรับ demo - return empty DataFrame
-        return pd.DataFrame()
-    
-    def _generate_report(self, df, ts_log, peer_log, output_file, config):
-        """สร้าง Excel report"""
-        # Import และใช้ ExcelReporter จาก anomaly_reporter.py
-        # สำหรับ demo - สร้าง Excel แบบง่าย
+        print("   🔄 Running Time Series Analysis...")
         
-        with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
-            # Sheet 1: Summary
-            summary = pd.DataFrame({
-                'Metric': ['Total Rows', 'Time Series Anomalies', 'Peer Group Anomalies'],
-                'Value': [len(df), len(ts_log), len(peer_log)]
-            })
-            summary.to_excel(writer, sheet_name='Summary', index=False)
-            
-            # Sheet 2: Time Series Log
-            if not ts_log.empty:
-                ts_log.to_excel(writer, sheet_name='Time_Series_Log', index=False)
-            
-            # Sheet 3: Peer Group Log
-            if not peer_log.empty:
-                peer_log.to_excel(writer, sheet_name='Peer_Group_Log', index=False)
+        full_audit_gen = FullAuditEngine(df.copy())
+        
+        df_ts_log = full_audit_gen.audit_time_series_all_months(
+            target_col=config.get('target_col', 'VALUE'),
+            date_col=config.get('date_col_name', '__date_col__'),
+            dimensions=config.get('audit_ts_dimensions', []),
+            window=config.get('audit_ts_window', 6)
+        )
+        
+        # กรองเฉพาะปัญหาสำคัญ
+        if not df_ts_log.empty:
+            df_ts_log = df_ts_log[
+                df_ts_log['ISSUE_DESC'].isin([
+                    'High_Spike', 'Low_Spike', 'Negative_Value'
+                ])
+            ].copy()
+            print(f"   ✓ Time Series: Found {len(df_ts_log)} critical anomalies")
+        else:
+            print(f"   ✓ Time Series: No anomalies detected")
+        
+        return df_ts_log
+    
+    def _run_peer_group(self, df, config):
+        """รัน Peer Group Analysis"""
+        print("   🔄 Running Peer Group Analysis...")
+        print("   ⚠️  This may take a while for large datasets...")
+        
+        full_audit_gen = FullAuditEngine(df.copy())
+        
+        df_peer_log = full_audit_gen.audit_peer_group_all_months(
+            target_col=config.get('target_col', 'VALUE'),
+            date_col=config.get('date_col_name', '__date_col__'),
+            group_dims=config.get('audit_peer_group_by', []),
+            item_id_col=config.get('audit_peer_item_id', 'ITEM_ID')
+        )
+        
+        if not df_peer_log.empty:
+            print(f"   ✓ Peer Group: Found {len(df_peer_log)} anomalies")
+        else:
+            print(f"   ✓ Peer Group: No anomalies detected")
+        
+        return df_peer_log
+    
+    def _generate_crosstab_report(self, df_clean, df_ts_log, config, reporter):
+        """สร้าง Crosstab Report"""
+        print("   📊 Generating Crosstab Report...")
+        
+        crosstab_gen = CrosstabGenerator(
+            df_clean.copy(),
+            min_history=config.get('crosstab_min_history', 3)
+        )
+        
+        df_crosstab = crosstab_gen.create_report(
+            target_col=config.get('target_col', 'VALUE'),
+            date_col=config.get('date_col_name', '__date_col__'),
+            dimensions=config.get('crosstab_dimensions', [])
+        )
+        
+        # ส่ง df_ts_log เข้าไปเพื่อช่วยทาสี Cell
+        reporter.add_crosstab_sheet(
+            df_report=df_crosstab,
+            df_anomaly_log=df_ts_log,
+            dimensions=config.get('crosstab_dimensions', []),
+            date_col_name=config.get('date_col_name', '__date_col__'),
+            date_cols_sorted=crosstab_gen.date_cols_sorted
+        )
+        
+        print(f"   ✓ Crosstab report generated")
     
     def _update_progress(self, file_id, progress_data, callback=None):
         """อัปเดต progress"""
+        progress_file_path = os.path.join(self.progress_folder, f"{file_id}.json")
+        
+        current_progress = {}
+        if os.path.exists(progress_file_path):
+            try:
+                with open(progress_file_path, 'r', encoding='utf-8') as f:
+                    current_progress = json.load(f)
+            except json.JSONDecodeError:
+                # Handle corrupted file or empty file
+                current_progress = {}
+        
         # Merge with existing progress
-        if file_id in self.progress_data:
-            self.progress_data[file_id].update(progress_data)
-        else:
-            self.progress_data[file_id] = progress_data
+        current_progress.update(progress_data)
         
         # Update timestamp
-        self.progress_data[file_id]['updated_at'] = datetime.now().isoformat()
+        current_progress['updated_at'] = datetime.now().isoformat()
+        
+        # Save to file
+        with open(progress_file_path, 'w', encoding='utf-8') as f:
+            json.dump(current_progress, f, ensure_ascii=False, indent=2)
         
         # Call callback if provided
         if callback:
-            callback(self.progress_data[file_id])
+            callback(current_progress)
     
     def get_progress(self, file_id):
         """ดึง progress ปัจจุบัน"""
-        return self.progress_data.get(file_id, {
+        progress_file_path = os.path.join(self.progress_folder, f"{file_id}.json")
+        
+        if os.path.exists(progress_file_path):
+            try:
+                with open(progress_file_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                # Handle corrupted file or empty file
+                pass
+        
+        return {
             'status': 'not_started',
             'progress': 0,
             'message': 'No progress data available'
-        })
+        }
     
     def update_progress(self, file_id, progress_data):
         """อัปเดต progress จากภายนอก"""

@@ -40,6 +40,12 @@ class DataAnalyzer:
             analysis['recommendations'] = self._recommend_long_format(df, analysis['columns'])
         elif input_mode == 'crosstab':
             analysis['recommendations'] = self._recommend_crosstab_format(df, analysis['columns'])
+            
+        # Merge dimension recommendations back into the main columns analysis
+        if 'dimension_columns' in analysis['recommendations']:
+            for dim_col in analysis['recommendations']['dimension_columns']:
+                if dim_col['name'] in analysis['columns']:
+                    analysis['columns'][dim_col['name']]['is_recommended_dimension'] = dim_col['recommended']
         
         return analysis
     
@@ -58,12 +64,15 @@ class DataAnalyzer:
         
         # For numeric columns
         if col_info['detected_type'] == 'numeric':
-            col_info['stats'] = {
-                'min': float(series.min()) if not series.isnull().all() else None,
-                'max': float(series.max()) if not series.isnull().all() else None,
-                'mean': float(series.mean()) if not series.isnull().all() else None,
-                'median': float(series.median()) if not series.isnull().all() else None
-            }
+            try:
+                col_info['stats'] = {
+                    'min': float(series.min()) if not series.isnull().all() else None,
+                    'max': float(series.max()) if not series.isnull().all() else None,
+                    'mean': float(series.mean()) if not series.isnull().all() else None,
+                    'median': float(series.median()) if not series.isnull().all() else None
+                }
+            except Exception as e:
+                col_info['stats'] = {'error': str(e)}
         
         # For date columns
         elif col_info['detected_type'] == 'date':
@@ -80,31 +89,61 @@ class DataAnalyzer:
         ตรวจจับประเภทของ column
         Returns: 'numeric', 'date', 'categorical', 'text', 'id'
         """
+        col_name = series.name
+        col_upper = str(col_name).upper()
+
         # Skip if mostly null
         if series.isnull().sum() / len(series) > 0.9:
             return 'mostly_null'
-        
+
+        # Check column name patterns first (more reliable than type inference)
+        # These patterns indicate dimension/categorical data even if numeric
+        dimension_patterns = ['_KEY', '_ID', '_CODE', '_NUMBER', '_NO', 'KEY_', 'ID_', 'CODE_']
+        is_likely_dimension = any(pattern in col_upper for pattern in dimension_patterns)
+
+        # Exclude actual date/time columns from dimension detection
+        date_keywords = ['YEAR', 'MONTH', 'DAY', 'DATE', 'TIME', 'PERIOD']
+        is_date_keyword = any(keyword == col_upper or col_upper.startswith(keyword + '_') for keyword in date_keywords)
+
         # Try numeric
+        is_numeric = False
         try:
             # Clean and convert
             cleaned = series.astype(str).str.replace(',', '').str.replace('(', '-').str.replace(')', '')
             pd.to_numeric(cleaned, errors='raise')
-            return 'numeric'
+            is_numeric = True
         except:
             pass
-        
-        # Try date
-        if self._is_date_column(series):
+
+        # If it's numeric but looks like a dimension key/code
+        if is_numeric and is_likely_dimension and not is_date_keyword:
+            # Check cardinality - if many unique values, likely a dimension
+            unique_ratio = series.nunique() / len(series)
+            if unique_ratio > 0.05:  # At least 5% unique values
+                return 'categorical'  # Treat as dimension
+            elif series.nunique() < 1000:  # Reasonable number of categories
+                return 'categorical'
+
+        # If numeric and not a dimension pattern, return numeric
+        if is_numeric:
+            return 'numeric'
+
+        # Try date (but not if it's a KEY/ID/CODE column)
+        if not is_likely_dimension and self._is_date_column(series):
             return 'date'
-        
-        # Check if ID (mostly unique)
+
+        # Check if ID (mostly unique) - for text-based IDs
         if series.nunique() / len(series) > 0.95:
             return 'id'
-        
+
         # Check if categorical (low cardinality)
         if series.nunique() < 50:
             return 'categorical'
-        
+
+        # Medium cardinality but has dimension pattern
+        if is_likely_dimension and series.nunique() < 10000:
+            return 'categorical'
+
         # Default to text
         return 'text'
     
@@ -158,26 +197,35 @@ class DataAnalyzer:
             'dimension_columns': [],
             'id_columns': []
         }
-        
+
         for col_name, info in columns_info.items():
             col_upper = col_name.upper()
-            
-            # Detect YEAR column
-            if 'YEAR' in col_upper and info['detected_type'] in ['numeric', 'categorical']:
-                recommendations['year_column'] = col_name
-            
-            # Detect MONTH column
-            elif 'MONTH' in col_upper and info['detected_type'] in ['numeric', 'categorical']:
-                recommendations['month_column'] = col_name
-            
+
+            # Detect YEAR column (exact match or starts with YEAR_)
+            if col_upper == 'YEAR' or col_upper.startswith('YEAR_'):
+                if info['detected_type'] in ['numeric', 'categorical']:
+                    recommendations['year_column'] = col_name
+                    continue
+
+            # Detect MONTH column (exact match or starts with MONTH_)
+            if col_upper == 'MONTH' or col_upper.startswith('MONTH_'):
+                if info['detected_type'] in ['numeric', 'categorical']:
+                    recommendations['month_column'] = col_name
+                    continue
+
             # Detect DATE column
-            elif info['detected_type'] == 'date':
+            if info['detected_type'] == 'date':
                 if not recommendations['date_column']:  # เอาตัวแรกที่เจอ
                     recommendations['date_column'] = col_name
-            
-            # Detect VALUE columns (numeric with "VALUE", "AMOUNT", "EXPENSE", "REVENUE")
-            elif info['detected_type'] == 'numeric':
-                value_keywords = ['VALUE', 'AMOUNT', 'EXPENSE', 'REVENUE', 'COST', 'SALES', 'PRICE']
+                continue
+
+            # Detect VALUE columns (only pure numeric, not KEY/ID/CODE)
+            # Exclude columns with dimension patterns
+            dimension_patterns = ['_KEY', '_ID', '_CODE', '_NUMBER', '_NO', 'KEY_', 'ID_', 'CODE_']
+            is_dimension_pattern = any(pattern in col_upper for pattern in dimension_patterns)
+
+            if info['detected_type'] == 'numeric' and not is_dimension_pattern:
+                value_keywords = ['VALUE', 'AMOUNT', 'EXPENSE', 'REVENUE', 'COST', 'SALES', 'PRICE', 'BALANCE', 'TOTAL', 'NET', 'GROSS']
                 if any(kw in col_upper for kw in value_keywords):
                     recommendations['value_columns'].append({
                         'name': col_name,
@@ -185,24 +233,36 @@ class DataAnalyzer:
                         'stats': info.get('stats', {})
                     })
                 else:
+                    # Even without keywords, if it's numeric and not a dimension pattern, it's likely a value
                     recommendations['value_columns'].append({
                         'name': col_name,
                         'confidence': 'medium',
                         'stats': info.get('stats', {})
                     })
-            
+                continue
+
             # Detect DIMENSION columns (categorical with reasonable cardinality)
-            elif info['detected_type'] == 'categorical' and 5 <= info['unique_count'] <= 1000:
-                recommendations['dimension_columns'].append({
-                    'name': col_name,
-                    'unique_count': info['unique_count'],
-                    'categories_sample': list(info.get('categories', {}).keys())[:5]
-                })
-            
-            # Detect ID columns
-            elif info['detected_type'] == 'id':
+            # Now includes numeric columns with dimension patterns
+            if info['detected_type'] in ['categorical', 'text']:
+                # Reasonable cardinality for dimensions
+                if 2 <= info['unique_count'] <= 10000:
+                    # Recommend based on common dimension keywords
+                    dim_keywords = ['GROUP', 'CODE', 'NAME', 'KEY', 'CENTER', 'SEGMENT', 'TYPE', 'CATEGORY',
+                                    'PRODUCT', 'CUSTOMER', 'GL', 'ACCOUNT', 'COST', 'DEPARTMENT', 'DIVISION']
+                    is_recommended = any(kw in col_upper for kw in dim_keywords)
+
+                    recommendations['dimension_columns'].append({
+                        'name': col_name,
+                        'unique_count': info['unique_count'],
+                        'categories_sample': list(info.get('categories', {}).keys())[:5] if info.get('categories') else [],
+                        'recommended': is_recommended
+                    })
+                    continue
+
+            # Detect ID columns (very high cardinality)
+            if info['detected_type'] == 'id':
                 recommendations['id_columns'].append(col_name)
-        
+
         return recommendations
     
     def _recommend_crosstab_format(self, df, columns_info):

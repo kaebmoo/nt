@@ -39,12 +39,93 @@ class ConfigManager:
     def load_config(self, file_id):
         """โหลด configuration"""
         config_path = os.path.join(self.config_folder, f"{file_id}.json")
-        
+
         if not os.path.exists(config_path):
             return None
-        
+
         with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            config = json.load(f)
+
+        # Normalize config to ensure correct types
+        return self.normalize_config(config)
+
+    def normalize_config(self, config):
+        """
+        Normalize configuration to ensure correct data types
+        Converts string values from HTML forms to proper types
+        """
+        if not config:
+            return config
+
+        # Boolean fields (from HTML checkbox "on" to True)
+        boolean_fields = [
+            'run_time_series_analysis',
+            'run_peer_group_analysis',
+            'run_crosstab_report',
+            'run_full_audit_log'
+        ]
+
+        for field in boolean_fields:
+            if field in config:
+                value = config[field]
+                if isinstance(value, str):
+                    config[field] = value.lower() in ['true', 'on', 'yes', '1']
+                else:
+                    config[field] = bool(value)
+
+        # Integer fields
+        integer_fields = [
+            'audit_ts_window',
+            'crosstab_min_history',
+            'crosstab_skiprows'
+        ]
+
+        for field in integer_fields:
+            if field in config:
+                try:
+                    config[field] = int(config[field])
+                except (ValueError, TypeError):
+                    # Use defaults
+                    if field == 'audit_ts_window':
+                        config[field] = 6
+                    elif field == 'crosstab_min_history':
+                        config[field] = 3
+                    elif field == 'crosstab_skiprows':
+                        config[field] = 0
+
+        # List fields - ensure they are lists
+        list_fields = [
+            'crosstab_dimensions',
+            'audit_ts_dimensions',
+            'audit_peer_group_by',
+            'crosstab_id_vars'
+        ]
+
+        for field in list_fields:
+            if field in config:
+                value = config[field]
+                if not isinstance(value, list):
+                    # If it's a string, try to parse it
+                    if isinstance(value, str):
+                        config[field] = [v.strip() for v in value.split(',') if v.strip()]
+                    else:
+                        config[field] = [value] if value else []
+            else:
+                config[field] = []
+
+        # Add date_col_name if not present
+        if 'date_col_name' not in config:
+            config['date_col_name'] = '__date_col__'
+
+        # If audit_ts_dimensions is empty, use crosstab_dimensions
+        if not config.get('audit_ts_dimensions') and config.get('crosstab_dimensions'):
+            config['audit_ts_dimensions'] = config['crosstab_dimensions'].copy()
+
+        # If audit_peer_group_by is empty, use crosstab_dimensions
+        if not config.get('audit_peer_group_by') and config.get('crosstab_dimensions'):
+            config['audit_peer_group_by'] = config['crosstab_dimensions'].copy()
+
+        return config
     
     def validate_config(self, config_data):
         """
@@ -102,6 +183,7 @@ class ConfigManager:
     
     def save_template(self, template_name, config_data):
         """บันทึก configuration template"""
+        template_name = self._secure_template_name(template_name)
         template_path = os.path.join(self.templates_folder, f"{template_name}.json")
         
         # Remove file-specific metadata
@@ -121,6 +203,7 @@ class ConfigManager:
     
     def load_template(self, template_name):
         """โหลด configuration template"""
+        template_name = self._secure_template_name(template_name)
         template_path = os.path.join(self.templates_folder, f"{template_name}.json")
         
         if not os.path.exists(template_path):
@@ -181,9 +264,24 @@ class ConfigManager:
     
     def delete_template(self, template_name):
         """ลบ template"""
+        template_name = self._secure_template_name(template_name)
         template_path = os.path.join(self.templates_folder, f"{template_name}.json")
         
         if os.path.exists(template_path):
             os.remove(template_path)
             return True
         return False
+
+    def _secure_template_name(self, template_name):
+        """
+        Sanitize the template name to prevent path traversal.
+        Ensures the name only contains safe characters and no path separators.
+        """
+        # Remove any directory components
+        template_name = os.path.basename(template_name)
+        # Further sanitize to allow only alphanumeric, hyphens, and underscores
+        template_name = ''.join(c for c in template_name if c.isalnum() or c in ('-', '_')).strip()
+        if not template_name:
+            raise ValueError("Template name cannot be empty or contain only invalid characters.")
+        return template_name
+

@@ -55,8 +55,14 @@
                             <div class="list-group-item" id="step-peer_group">
                                 <i class="bi bi-circle text-muted"></i> วิเคราะห์ Peer Group
                             </div>
-                            <div class="list-group-item" id="step-report">
-                                <i class="bi bi-circle text-muted"></i> สร้างรายงาน
+                            <div class="list-group-item" id="step-crosstab_report">
+                                <i class="bi bi-circle text-muted"></i> สร้าง Crosstab Report
+                            </div>
+                            <div class="list-group-item" id="step-audit_logs">
+                                <i class="bi bi-circle text-muted"></i> สร้าง Audit Logs
+                            </div>
+                            <div class="list-group-item" id="step-saving">
+                                <i class="bi bi-circle text-muted"></i> บันทึกรายงาน
                             </div>
                         </div>
 
@@ -64,12 +70,18 @@
                         <div id="completionMessage" class="alert alert-success" style="display: none;">
                             <h5><i class="bi bi-check-circle"></i> ประมวลผลเสร็จสมบูรณ์!</h5>
                             <p id="resultSummary"></p>
-                            <div class="d-grid gap-2 mt-3">
-                                <a href="#" id="downloadLink" class="btn btn-success btn-lg">
+                            <div class="d-grid gap-2 mt-3" id="completionButtons">
+                                <a href="#" id="downloadLink" class="btn btn-success btn-lg" style="display: none;">
                                     <i class="bi bi-download"></i> ดาวน์โหลดรายงาน
                                 </a>
+                                <div id="downloadPending" class="alert alert-info" style="display: none;">
+                                    <i class="bi bi-hourglass-split"></i> กำลังเตรียมไฟล์ดาวน์โหลด...
+                                </div>
                                 <a href="{{ url_for('history') }}" class="btn btn-outline-primary">
                                     <i class="bi bi-clock-history"></i> ไปที่ประวัติ
+                                </a>
+                                <a href="{{ url_for('upload') }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-upload"></i> อัพโหลดไฟล์ใหม่
                                 </a>
                             </div>
                         </div>
@@ -99,6 +111,7 @@
 $(document).ready(function() {
     const fileId = '{{ file_info.file_id }}';
     let progressInterval;
+    let isCompleted = false; // Flag to prevent polling after completion
 
     // Start processing
     function startProcessing() {
@@ -106,10 +119,11 @@ $(document).ready(function() {
             url: '/api/run-audit/' + fileId,
             type: 'POST',
             success: function(result) {
-                // Processing completed
-                handleCompletion(result);
+                console.log('Audit started in background:', result);
+                // Don't call handleCompletion here - wait for polling to detect completion
             },
             error: function(xhr) {
+                clearInterval(progressInterval);
                 handleError(xhr.responseJSON?.error || 'Unknown error');
             }
         });
@@ -120,53 +134,98 @@ $(document).ready(function() {
 
     // Update progress
     function updateProgress() {
+        // CRITICAL: Prevent any updates after completion
+        if (isCompleted) {
+            console.log('Skipping update - already completed');
+            clearInterval(progressInterval);
+            return;
+        }
+
         $.ajax({
             url: '/api/progress/' + fileId,
             type: 'GET',
             success: function(progress) {
+                // CRITICAL: Double check completion flag before ANY updates
+                if (isCompleted) {
+                    console.log('Skipping update in success callback - already completed');
+                    return;
+                }
+
                 const percent = progress.progress || 0;
                 const status = progress.status || 'processing';
                 const message = progress.message || 'Processing...';
 
-                // Update progress bar
+                // Update progress bar (only if not completed)
                 $('#progressBar').css('width', percent + '%');
                 $('#progressBar').attr('aria-valuenow', percent);
                 $('#progressPercent').text(percent.toFixed(0) + '%');
 
-                // Update status message
+                // Update status message (only if not completed)
                 $('#statusMessage').text(message);
 
-                // Update steps
+                // Update steps (only if not completed)
                 updateSteps(status);
 
+                // Build download URL from output_id if available
+                if (progress.output_id) {
+                    downloadUrl = '/download/' + progress.output_id;
+                    $('#downloadLink').attr('href', downloadUrl);
+                    console.log('Download URL updated:', downloadUrl);
+                } else if (progress.download_url) {
+                    // Fallback to download_url if provided
+                    downloadUrl = progress.download_url;
+                    $('#downloadLink').attr('href', downloadUrl);
+                    console.log('Download URL updated (from download_url):', downloadUrl);
+                }
+
                 // Check if completed
-                if (status === 'completed') {
-                    clearInterval(progressInterval);
+                if (status === 'completed' && !isCompleted) {
+                    console.log('Status is completed, calling handleCompletion');
+                    isCompleted = true; // Set flag FIRST
+                    clearInterval(progressInterval); // Stop polling SECOND
+
+                    // Update download link one more time
+                    if (downloadUrl) {
+                        $('#downloadLink').attr('href', downloadUrl);
+                    }
+
+                    // Call completion handler LAST
                     handleCompletion(progress.result);
                 } else if (status === 'error') {
+                    isCompleted = true;
                     clearInterval(progressInterval);
                     handleError(progress.message);
                 }
+            },
+            error: function(xhr) {
+                console.error('Failed to fetch progress:', xhr);
+                // Continue polling even if one request fails
             }
         });
     }
 
     // Update step indicators
     function updateSteps(currentStatus) {
-        const steps = ['loading', 'preprocessing', 'time_series', 'peer_group', 'generating_report'];
+        const steps = ['starting', 'loading', 'preprocessing', 'time_series', 'peer_group', 'crosstab_report', 'audit_logs', 'saving'];
         const statusMap = {
-            'loading': 0,
-            'preprocessing': 1,
-            'time_series': 2,
-            'peer_group': 3,
-            'generating_report': 4,
-            'completed': 5
+            'starting': 0,
+            'loading': 1,
+            'preprocessing': 2,
+            'time_series': 3,
+            'peer_group': 4,
+            'crosstab_report': 5,
+            'peer_crosstab': 5, // Same as crosstab_report
+            'audit_logs': 6,
+            'saving': 7,
+            'completed': 8
         };
 
         const currentIndex = statusMap[currentStatus] || 0;
 
         steps.forEach((step, index) => {
             const stepEl = $('#step-' + step + ' i');
+            if (!stepEl.length) return; // Skip if step doesn't exist in HTML
+
             if (index < currentIndex) {
                 stepEl.removeClass('bi-circle text-muted bi-circle-fill text-warning');
                 stepEl.addClass('bi-check-circle-fill text-success');
@@ -179,24 +238,161 @@ $(document).ready(function() {
 
     // Handle completion
     function handleCompletion(result) {
+        console.log('=== COMPLETION HANDLER CALLED ===');
+        console.log('Result:', result);
+        console.log('Download URL:', downloadUrl);
+        console.log('Completion message visible?', $('#completionMessage').is(':visible'));
+
+        clearInterval(progressInterval); // Stop polling
+        isCompleted = true; // Ensure flag is set
+
+        // Update progress bar to completed state
         $('#progressBar').removeClass('progress-bar-animated');
         $('#progressBar').addClass('bg-success');
         $('#progressBar').css('width', '100%');
         $('#progressPercent').text('100%');
 
-        // Show completion message
-        $('#completionMessage').show();
-        $('#resultSummary').html(
-            `<strong>ผลการวิเคราะห์:</strong><br>` +
-            `- จำนวนแถวทั้งหมด: ${result.total_rows?.toLocaleString() || 'N/A'}<br>` +
-            `- Time Series Anomalies: ${result.ts_anomalies?.toLocaleString() || '0'}<br>` +
-            `- Peer Group Anomalies: ${result.peer_anomalies?.toLocaleString() || '0'}`
-        );
-        $('#downloadLink').attr('href', result.download_url || '#');
+        // Update status message
+        $('#statusMessage').text('ประมวลผลเสร็จสมบูรณ์!');
 
         // Update all steps to completed
         updateSteps('completed');
+
+        // Format result summary
+        if (result) {
+            $('#resultSummary').html(
+                `<strong>ผลการวิเคราะห์:</strong><br>` +
+                `- จำนวนแถวทั้งหมด: ${result.total_rows?.toLocaleString() || 'N/A'}<br>` +
+                `- Time Series Anomalies: ${result.ts_anomalies?.toLocaleString() || '0'}<br>` +
+                `- Peer Group Anomalies: ${result.peer_anomalies?.toLocaleString() || '0'}`
+            );
+        }
+
+        // CRITICAL: Show completion message and NEVER hide it
+        // Use attr to set inline style with !important equivalent
+        $('#completionMessage')
+            .show()
+            .css({
+                'display': 'block',
+                'visibility': 'visible',
+                'opacity': '1'
+            })
+            .attr('data-completed', 'true'); // Mark as completed
+
+        console.log('Completion message shown, visible?', $('#completionMessage').is(':visible'));
+
+        // Handle download link
+        if (downloadUrl) {
+            // Show download button immediately with strong visibility
+            console.log('Setting download link immediately to:', downloadUrl);
+            $('#downloadLink')
+                .attr('href', downloadUrl)
+                .css({
+                    'display': 'block',
+                    'visibility': 'visible',
+                    'opacity': '1'
+                })
+                .show()
+                .attr('data-active', 'true'); // Mark as active
+            $('#downloadPending').hide();
+        } else {
+            // Show pending message and keep polling for URL
+            console.log('Download URL not ready, starting poll...');
+            $('#downloadPending').css('display', 'block').show();
+
+            // Poll for output_id to build download URL
+            let urlCheckCount = 0;
+            const urlCheckInterval = setInterval(function() {
+                console.log('Polling for output_id, attempt:', urlCheckCount + 1);
+                $.ajax({
+                    url: '/api/progress/' + fileId,
+                    type: 'GET',
+                    success: function(progress) {
+                        console.log('Poll response:', progress);
+                        if (progress.output_id) {
+                            downloadUrl = '/download/' + progress.output_id;
+                            console.log('Found output_id! Download URL:', downloadUrl);
+                            $('#downloadLink').attr('href', downloadUrl).css('display', 'block').show();
+                            $('#downloadPending').fadeOut();
+                            clearInterval(urlCheckInterval);
+                        } else if (progress.download_url) {
+                            // Fallback to download_url if provided
+                            downloadUrl = progress.download_url;
+                            console.log('Found download_url! Download URL:', downloadUrl);
+                            $('#downloadLink').attr('href', downloadUrl).css('display', 'block').show();
+                            $('#downloadPending').fadeOut();
+                            clearInterval(urlCheckInterval);
+                        }
+                    }
+                });
+
+                urlCheckCount++;
+                if (urlCheckCount > 10) {
+                    // After 10 seconds, give up and show alternative
+                    console.warn('Timeout waiting for download URL');
+                    clearInterval(urlCheckInterval);
+                    $('#downloadPending').html(
+                        '<i class="bi bi-info-circle"></i> ไฟล์พร้อมแล้ว! กรุณาไปที่ <a href="{{ url_for("history") }}">หน้าประวัติ</a> เพื่อดาวน์โหลด'
+                    );
+                }
+            }, 1000);
+        }
+
+        // Debug: Log state every 2 seconds
+        let debugCount = 0;
+        const debugInterval = setInterval(function() {
+            debugCount++;
+            console.log(`[DEBUG ${debugCount}] Completion visible:`, $('#completionMessage').is(':visible'));
+            console.log(`[DEBUG ${debugCount}] Download link visible:`, $('#downloadLink').is(':visible'));
+            console.log(`[DEBUG ${debugCount}] Download URL:`, downloadUrl);
+
+            // FORCE visibility if hidden
+            if (!$('#completionMessage').is(':visible')) {
+                console.warn(`[DEBUG ${debugCount}] Completion message hidden! Forcing visible...`);
+                $('#completionMessage').show().css({
+                    'display': 'block !important',
+                    'visibility': 'visible',
+                    'opacity': '1'
+                });
+            }
+            if (downloadUrl && !$('#downloadLink').is(':visible')) {
+                console.warn(`[DEBUG ${debugCount}] Download link hidden! Forcing visible...`);
+                $('#downloadLink').show().css({
+                    'display': 'block !important',
+                    'visibility': 'visible',
+                    'opacity': '1'
+                });
+            }
+
+            if (debugCount > 10) clearInterval(debugInterval); // Extended to 20 seconds
+        }, 2000);
+
+        // CRITICAL: Add MutationObserver to prevent hiding
+        const completionElement = document.getElementById('completionMessage');
+        if (completionElement) {
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                        const currentDisplay = window.getComputedStyle(completionElement).display;
+                        if (currentDisplay === 'none') {
+                            console.error('ALERT: Something tried to hide completion message! Reverting...');
+                            $('#completionMessage').show().css('display', 'block');
+                        }
+                    }
+                });
+            });
+
+            observer.observe(completionElement, {
+                attributes: true,
+                attributeFilter: ['style', 'class']
+            });
+
+            console.log('MutationObserver installed to protect completion message');
+        }
     }
+
+    // Store download URL globally
+    let downloadUrl = null;
 
     // Handle error
     function handleError(errorMsg) {

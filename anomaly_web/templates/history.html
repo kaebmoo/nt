@@ -85,11 +85,18 @@
                                         <i class="bi bi-eye"></i>
                                     </a>
                                     <a href="{{ url_for('configure', file_id=upload.file_id) }}" 
-                                       class="btn btn-outline-success">
+                                       class="btn btn-outline-success" title="Run Analysis">
                                         <i class="bi bi-play"></i>
                                     </a>
+                                    <button class="btn btn-outline-secondary edit-upload"
+                                            data-file-id="{{ upload.file_id }}"
+                                            data-description="{{ upload.description }}"
+                                            data-tags="{{ upload.tags|join(',') }}"
+                                            title="Edit Metadata">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
                                     <button class="btn btn-outline-danger delete-upload" 
-                                            data-file-id="{{ upload.file_id }}">
+                                            data-file-id="{{ upload.file_id }}" title="Delete">
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </div>
@@ -131,6 +138,13 @@
                             <td>
                                 <i class="bi bi-file-earmark-excel text-success"></i>
                                 {{ output.filename }}
+                                {% if output.tags %}
+                                <div class="mt-1">
+                                    {% for tag in output.tags %}
+                                    <span class="badge bg-secondary me-1">{{ tag }}</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
                             </td>
                             <td>{{ output.file_size_mb }} MB</td>
                             <td>
@@ -188,11 +202,96 @@
     </div>
 </div>
 
+<!-- Edit Metadata Modal -->
+<div class="modal fade" id="editMetadataModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Metadata</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editMetadataForm">
+                <div class="modal-body">
+                    <input type="hidden" id="editFileId" name="file_id">
+                    <div class="mb-3">
+                        <label for="editDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="editDescription" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTags" class="form-label">Tags</label>
+                        <input type="text" id="editTags" name="tags" class="form-control" placeholder="Add tags...">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
 $(document).ready(function() {
+    let tomSelectInstance = null;
+
+    // Edit upload metadata
+    $('.edit-upload').on('click', function() {
+        const fileId = $(this).data('file-id');
+        const description = $(this).data('description');
+        const tags = $(this).data('tags');
+
+        $('#editFileId').val(fileId);
+        $('#editDescription').val(description);
+
+        // Destroy previous TomSelect instance if it exists
+        if (tomSelectInstance) {
+            tomSelectInstance.destroy();
+        }
+        
+        $('#editTags').val(tags);
+
+        tomSelectInstance = new TomSelect('#editTags', {
+            plugins: ['remove_button'],
+            create: true,
+            delimiter: ',',
+            persist: false,
+            createFilter: function(input) {
+                return input.length >= 1;
+            }
+        });
+
+        $('#editMetadataModal').modal('show');
+    });
+
+    $('#editMetadataForm').on('submit', function(e) {
+        e.preventDefault();
+        const fileId = $('#editFileId').val();
+        const description = $('#editDescription').val();
+        const tags = $('#editTags').val().split(',').filter(tag => tag.trim() !== '');
+
+        $.ajax({
+            url: '/api/upload-metadata/' + fileId,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                description: description,
+                tags: tags
+            }),
+            success: function() {
+                $('#editMetadataModal').modal('hide');
+                location.reload();
+            },
+            error: function(xhr) {
+                alert('Error updating metadata: ' + (xhr.responseJSON?.error || 'Unknown error'));
+            }
+        });
+    });
+
     // Delete upload
     $('.delete-upload').on('click', function() {
         const fileId = $(this).data('file-id');
