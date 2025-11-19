@@ -386,6 +386,7 @@ elif forecast_type == "Expense":
                         if 'gl_code' in df.columns:
                             results = expense_engine.forecast_by_gl_code(
                                 df=df,
+                                gl_column='GL_CODE',
                                 date_column=date_col,
                                 value_column=value_col,
                                 forecast_periods=forecast_periods

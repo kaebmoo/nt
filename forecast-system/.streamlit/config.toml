@@ -1,0 +1,20 @@
+# Streamlit Configuration File
+
+[server]
+# Maximum file upload size in MB (default is 200MB)
+# Increase this value based on your needs
+maxUploadSize = 500
+
+# Enable file watcher for auto-reload during development
+fileWatcherType = "auto"
+
+[theme]
+# Optional: Customize the app theme
+# primaryColor = "#1f77b4"
+# backgroundColor = "#ffffff"
+# secondaryBackgroundColor = "#f0f2f6"
+# textColor = "#262730"
+
+[browser]
+# Gather usage stats (set to false for privacy)
+gatherUsageStats = false
