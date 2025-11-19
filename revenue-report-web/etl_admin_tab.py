@@ -334,7 +334,7 @@ def show_etl_admin_tab():
                 help="จำนวนเดือนสำหรับ rolling average"
             )
 
-            if st.button("💾 Save Quick Settings", width='stretch'):
+            if st.button("💾 Save Quick Settings", use_container_width=True):
                 # Update months (sync ทั้ง FI และ ETL ให้เท่ากันเสมอ)
                 st.session_state.etl_config_manager.set_processing_month(fi_month, update_etl=True)
 
@@ -359,10 +359,10 @@ def show_etl_admin_tab():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("▶️ Run All", width='stretch'):
+            if st.button("▶️ Run All", use_container_width=True):
                 run_all_modules()
         with col2:
-            if st.button("🔄 Reset", width='stretch'):
+            if st.button("🔄 Reset", use_container_width=True):
                 reset_system()
         
         st.markdown("---")
@@ -370,10 +370,10 @@ def show_etl_admin_tab():
         # Module Controls
         st.header("📦 Individual Modules")
         
-        if st.button("1️⃣ Run FI Module", width='stretch'):
+        if st.button("1️⃣ Run FI Module", use_container_width=True):
             run_fi_module()
         
-        if st.button("2️⃣ Run ETL Module", width='stretch'):
+        if st.button("2️⃣ Run ETL Module", use_container_width=True):
             run_etl_module()
         
         st.markdown("---")
@@ -805,7 +805,7 @@ def show_fi_module():
                     if col != 'รายการ' and df_display[col].dtype in ['int64', 'float64']:
                         df_display[col] = df_display[col].apply(lambda x: f'{x:,.2f}' if pd.notna(x) else '')
 
-                st.dataframe(df_display, width='stretch')
+                st.dataframe(df_display, use_container_width=True)
                 
                 # Create chart
                 fig = go.Figure()
@@ -1021,7 +1021,7 @@ def show_reconciliation():
     df_reconcile['TRN Total'] = df_reconcile['TRN Total'].apply(lambda x: f"{x:,.2f}")
     df_reconcile['Difference'] = df_reconcile['Difference'].apply(lambda x: f"{x:,.2f}")
 
-    st.dataframe(df_reconcile, width='stretch')
+    st.dataframe(df_reconcile, use_container_width=True)
 
     # Validation Results
     st.markdown("---")
@@ -1122,7 +1122,7 @@ def show_analytics():
                             if display_cols:
                                 st.dataframe(
                                     anomalies_df[display_cols].head(20),
-                                    width='stretch'
+                                    use_container_width=True
                                 )
                         else:
                             st.success("No anomalies detected")
@@ -1516,7 +1516,7 @@ def show_configuration():
     col1, col2, col3 = st.columns([1, 1, 1])
 
     with col2:
-        if st.button("💾 Save All Configuration Changes", width='stretch', type="primary"):
+        if st.button("💾 Save All Configuration Changes", use_container_width=True, type="primary"):
             try:
                 # Update environment
                 config['environment']['name'] = env_name
@@ -1596,6 +1596,9 @@ def show_configuration():
                 config['logging']['enable_file_logging'] = log_enable_file
                 config['logging']['log_directory'] = log_directory
 
+                # **CRITICAL: Save config to file!**
+                st.session_state.etl_config_manager.save_config(backup=True)
+
                 # Reload paths
                 st.session_state.etl_config_manager._setup_paths()
 
@@ -1604,7 +1607,8 @@ def show_configuration():
                     st.session_state.etl_system.fi_config = st.session_state.etl_config_manager.get_fi_config()
                     st.session_state.etl_system.etl_config = st.session_state.etl_config_manager.get_etl_config()
 
-                st.success("✅ Configuration updated successfully!")
+                st.success("✅ Configuration updated and saved to file successfully!")
+                st.info(f"💾 Config saved to: {st.session_state.etl_config_manager.config_path}")
                 st.balloons()
 
                 if new_fi_month != new_etl_month:
@@ -1756,7 +1760,7 @@ def show_logs():
 
                         if len(df_error) > 0:
                             st.warning(f"Found {len(df_error)} error records")
-                            st.dataframe(df_error.head(100), width='stretch')
+                            st.dataframe(df_error.head(100), use_container_width=True)
 
                             # Download button
                             st.download_button(
