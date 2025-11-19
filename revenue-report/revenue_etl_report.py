@@ -1447,8 +1447,11 @@ class RevenueETL:
         ws = wb.create_sheet(sheet_name)
 
         # กรองเฉพาะรายการที่ผิดปกติ
-        df_anomaly = df_result[~df_result['ANOMALY_STATUS'].isin(['Normal', 'Not_Enough_Data'])].copy()
-        
+        if 'ANOMALY_STATUS' in df_result.columns:
+            df_anomaly = df_result[~df_result['ANOMALY_STATUS'].isin(['Normal', 'Not_Enough_Data'])].copy()
+        else:
+            df_anomaly = pd.DataFrame()  # Empty dataframe if no ANOMALY_STATUS column
+
         if len(df_anomaly) == 0:
             ws['A1'] = f'ไม่พบความผิดปกติในระดับ {level_name.upper()}'
             ws['A1'].font = Font(bold=True, size=12, color='008000')
@@ -1687,19 +1690,19 @@ class RevenueETL:
             self.logger.info("    กำลังสร้าง Anomaly Maps...")
             try:
                 # Product Map
-                df_prod = anomaly_results['product'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'ANOMALY_STATUS']]
+                df_prod = anomaly_results['product']['dataframe'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY', 'ANOMALY_STATUS']]
                 prod_map = df_prod.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP', 'PRODUCT_KEY'])['ANOMALY_STATUS'].to_dict()
 
                 # Service Map
-                df_serv = anomaly_results['service'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'ANOMALY_STATUS']]
+                df_serv = anomaly_results['service']['dataframe'][['BUSINESS_GROUP', 'SERVICE_GROUP', 'ANOMALY_STATUS']]
                 serv_map = df_serv.set_index(['BUSINESS_GROUP', 'SERVICE_GROUP'])['ANOMALY_STATUS'].to_dict()
 
                 # Business Map
-                df_biz = anomaly_results['business'][['BUSINESS_GROUP', 'ANOMALY_STATUS']]
+                df_biz = anomaly_results['business']['dataframe'][['BUSINESS_GROUP', 'ANOMALY_STATUS']]
                 biz_map = df_biz.set_index(['BUSINESS_GROUP'])['ANOMALY_STATUS'].to_dict()
 
                 # Grand Total Status
-                grand_total_status = anomaly_results['grand_total']['ANOMALY_STATUS'].values[0]
+                grand_total_status = anomaly_results['grand_total']['dataframe']['ANOMALY_STATUS'].values[0]
 
             except KeyError as e:
                 self.logger.warning(f"    Warning: ไม่พบ anomaly key {e}, จะใช้ค่าว่าง")
@@ -2224,7 +2227,7 @@ class RevenueETL:
 
                 # ใช้ status_counts ที่คำนวณไว้แล้ว
                 status_counts = level_data.get('status_counts', {})
-                if not status_counts:
+                if not status_counts and 'ANOMALY_STATUS' in df_anomaly.columns:
                     status_counts = df_anomaly['ANOMALY_STATUS'].value_counts().to_dict()
 
                 total = len(df_anomaly)
