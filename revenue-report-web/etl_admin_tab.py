@@ -329,7 +329,7 @@ def show_etl_admin_tab():
                 help="จำนวนเดือนสำหรับ rolling average"
             )
 
-            if st.button("💾 Save Quick Settings", use_container_width=True):
+            if st.button("💾 Save Quick Settings", width='stretch'):
                 # Update months (sync ทั้ง FI และ ETL ให้เท่ากันเสมอ)
                 st.session_state.etl_config_manager.set_processing_month(fi_month, update_etl=True)
 
@@ -354,10 +354,10 @@ def show_etl_admin_tab():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("▶️ Run All", use_container_width=True):
+            if st.button("▶️ Run All", width='stretch'):
                 run_all_modules()
         with col2:
-            if st.button("🔄 Reset", use_container_width=True):
+            if st.button("🔄 Reset", width='stretch'):
                 reset_system()
         
         st.markdown("---")
@@ -365,10 +365,10 @@ def show_etl_admin_tab():
         # Module Controls
         st.header("📦 Individual Modules")
         
-        if st.button("1️⃣ Run FI Module", use_container_width=True):
+        if st.button("1️⃣ Run FI Module", width='stretch'):
             run_fi_module()
         
-        if st.button("2️⃣ Run ETL Module", use_container_width=True):
+        if st.button("2️⃣ Run ETL Module", width='stretch'):
             run_etl_module()
         
         st.markdown("---")
@@ -796,7 +796,7 @@ def show_fi_module():
                                 file_name=file_name,
                                 mime=mime_type,
                                 key=f"download_fi_{key}",
-                                use_container_width=True
+                                width='stretch'
                             )
                     else:
                         st.warning(f"❌ {key}: File not found")
@@ -820,7 +820,7 @@ def show_fi_module():
                     if col != 'รายการ' and df_display[col].dtype in ['int64', 'float64']:
                         df_display[col] = df_display[col].apply(lambda x: f'{x:,.2f}' if pd.notna(x) else '')
 
-                st.dataframe(df_display, use_container_width=True)
+                st.dataframe(df_display, width='stretch')
 
                 # Create chart
                 fig = go.Figure()
@@ -1036,7 +1036,7 @@ def show_reconciliation():
     df_reconcile['TRN Total'] = df_reconcile['TRN Total'].apply(lambda x: f"{x:,.2f}")
     df_reconcile['Difference'] = df_reconcile['Difference'].apply(lambda x: f"{x:,.2f}")
 
-    st.dataframe(df_reconcile, use_container_width=True)
+    st.dataframe(df_reconcile, width='stretch')
 
     # Validation Results
     st.markdown("---")
@@ -1137,7 +1137,7 @@ def show_analytics():
                             if display_cols:
                                 st.dataframe(
                                     anomalies_df[display_cols].head(20),
-                                    use_container_width=True
+                                    width='stretch'
                                 )
                         else:
                             st.success("No anomalies detected")
@@ -1531,7 +1531,7 @@ def show_configuration():
     col1, col2, col3 = st.columns([1, 1, 1])
 
     with col2:
-        if st.button("💾 Save All Configuration Changes", use_container_width=True, type="primary"):
+        if st.button("💾 Save All Configuration Changes", width='stretch', type="primary"):
             try:
                 # Update environment
                 config['environment']['name'] = env_name
@@ -1775,7 +1775,7 @@ def show_logs():
 
                         if len(df_error) > 0:
                             st.warning(f"Found {len(df_error)} error records")
-                            st.dataframe(df_error.head(100), use_container_width=True)
+                            st.dataframe(df_error.head(100), width='stretch')
 
                             # Download button
                             st.download_button(

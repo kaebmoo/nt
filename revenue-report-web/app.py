@@ -112,7 +112,7 @@ def show_login_page():
         )
 
         # Request OTP button
-        if st.button("🔑 ขอรหัส OTP", type="primary", use_container_width=True):
+        if st.button("🔑 ขอรหัส OTP", type="primary", width='stretch'):
             if not email_input:
                 st.error("❌ กรุณากรอก email")
             else:
@@ -160,7 +160,7 @@ def show_login_page():
                 help=f"กรอกรหัส OTP ที่ส่งไปที่ {st.session_state.user_email}"
             )
 
-            if st.button("✓ ยืนยัน OTP", type="primary", use_container_width=True):
+            if st.button("✓ ยืนยัน OTP", type="primary", width='stretch'):
                 if not otp_input:
                     st.error("❌ กรุณากรอกรหัส OTP")
                 elif len(otp_input) != 6:
@@ -200,12 +200,12 @@ def show_main_app():
         st.markdown("---")
 
         # Logout button
-        if st.button("🚪 ออกจากระบบ", use_container_width=True):
+        if st.button("🚪 ออกจากระบบ", width='stretch'):
             logout()
             st.rerun()
 
     # Main content
-    st.title("📊 Revenue Report Distribution System")
+    st.title("Revenue Report Distribution System")
 
     # Create tabs
     if is_admin:
@@ -412,7 +412,7 @@ def show_send_email_tab():
         # Send button
         st.markdown("---")
 
-        if st.button("📤 ส่ง Email", type="primary", use_container_width=True):
+        if st.button("📤 ส่ง Email", type="primary", width='stretch'):
             with st.spinner("กำลังส่ง email..."):
                 result = email_sender.send_report_email(
                     to_emails=selected_emails,
@@ -717,7 +717,7 @@ def show_email_logs_tab():
     # Display
     st.dataframe(
         df[['timestamp', 'recipients', 'subject', 'files', 'status_display']],
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         column_config={
             'timestamp': 'Time',
