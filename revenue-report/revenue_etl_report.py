@@ -33,6 +33,12 @@ class ConfigAdapter:
         self.end_month = etl_config.get('end_month', None)  # เดือนสุดท้ายที่ต้องการประมวลผล
         self.fi_month = etl_config.get('fi_month', None)    # เดือนของ FI file
 
+        # Excel Formatting Settings (เพิ่มใหม่)
+        excel_format = etl_config.get('excel_format', {})
+        self.EXCEL_FONT_NAME = excel_format.get('font_name', 'TH Sarabun New')
+        self.EXCEL_FONT_SIZE = excel_format.get('font_size', 16)
+        self.EXCEL_HEADER_SIZE = excel_format.get('header_size', 16)
+
         # Reconciliation Settings
         reconcile = etl_config.get('reconciliation', {})
         self.RECONCILE_FI_MONTH = reconcile.get('fi_month', '10')
@@ -2005,6 +2011,11 @@ class RevenueETL:
         def format_excel(filename, anomaly_map=None):
             """จัดรูปแบบ Excel ให้สวยงาม"""
             self.logger.info("กำลังจัดรูปแบบ Excel...")
+
+            # โหลดค่า font จาก config
+            FONT_NAME = self.config.EXCEL_FONT_NAME
+            FONT_SIZE = self.config.EXCEL_FONT_SIZE
+
             try:
                 wb = load_workbook(filename)
             except Exception as e:
@@ -2020,7 +2031,7 @@ class RevenueETL:
 
                 # จัดรูปแบบ header
                 header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
-                header_font = Font(bold=True, color='FFFFFF', size=11)
+                header_font = Font(name=FONT_NAME, bold=True, color='FFFFFF', size=FONT_SIZE)
 
                 for cell in ws[1]:
                     cell.fill = header_fill
@@ -2039,27 +2050,34 @@ class RevenueETL:
                                 cell.number_format = '#,##0.00'
                                 cell.alignment = Alignment(horizontal='right')
 
+                # กำหนด default font สำหรับทุก cell ที่ยังไม่ได้กำหนด
+                default_font = Font(name=FONT_NAME, size=FONT_SIZE)
+                for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+                    for cell in row:
+                        if cell.font.name == 'Calibri':  # default font ของ Excel
+                            cell.font = default_font
+
                 # กำหนดสีสำหรับแต่ละระดับ
                 service_group_fill = PatternFill(start_color='E8F1F8', end_color='E8F1F8', fill_type='solid')
-                service_group_font = Font(bold=True, size=10)
+                service_group_font = Font(name=FONT_NAME, bold=True, size=FONT_SIZE)
 
                 business_group_fill = PatternFill(start_color='D0E2F0', end_color='D0E2F0', fill_type='solid')
-                business_group_font = Font(bold=True, size=11)
+                business_group_font = Font(name=FONT_NAME, bold=True, size=FONT_SIZE)
 
                 grand_total_fill = PatternFill(start_color='B8CCE4', end_color='B8CCE4', fill_type='solid')
-                grand_total_font = Font(bold=True, size=12)
+                grand_total_font = Font(name=FONT_NAME, bold=True, size=FONT_SIZE)
 
                 total_service_fill = PatternFill(start_color='C6E0B4', end_color='C6E0B4', fill_type='solid')
-                total_service_font = Font(bold=True, size=11, color='006100')
+                total_service_font = Font(name=FONT_NAME, bold=True, size=FONT_SIZE, color='006100')
 
                 adj_group_fill = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid')
-                adj_group_font = Font(bold=True, size=11)
+                adj_group_font = Font(name=FONT_NAME, bold=True, size=FONT_SIZE)
 
                 adj_item_fill = PatternFill(start_color='FDF7F4', end_color='FDF7F4', fill_type='solid')
-                adj_item_font = Font(bold=False, size=10)
+                adj_item_font = Font(name=FONT_NAME, bold=False, size=FONT_SIZE)
 
                 adj_total_fill = PatternFill(start_color='F8CBAD', end_color='F8CBAD', fill_type='solid')
-                adj_total_font = Font(bold=True, size=11)
+                adj_total_font = Font(name=FONT_NAME, bold=True, size=FONT_SIZE)
 
                 # วนลูป highlight แถวตามประเภท
                 for row in ws.iter_rows(min_row=2, max_row=ws.max_row):

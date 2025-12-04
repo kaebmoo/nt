@@ -67,6 +67,12 @@
     "input_subpath": "revenue",
     "output_subpath": "revenue/output",
     "final_output_subpath": "all/revenue",
+
+    "excel_format": {
+      "font_name": "TH Sarabun New",
+      "font_size": 16,
+      "header_size": 16
+    },
     
     "reconciliation": {
       "enabled": true,
