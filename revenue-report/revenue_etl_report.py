@@ -286,6 +286,33 @@ class RevenueETL:
 
         # ตัวแปรสำหรับเก็บ YTD data ไว้ใช้ใน report
         self.df_adj_ytd = pd.DataFrame() 
+
+    def read_csv_robust(self, file_path, **kwargs):
+        """
+        [NEW] Reads a CSV file with robust encoding handling.
+        Tries encodings in order: utf-8 -> tis-620 -> cp1252 -> latin1
+        """
+        encodings = ['utf-8', 'tis-620', 'cp874', 'cp1252', 'latin1']
+        
+        # Remove 'encoding' from kwargs if present to avoid conflict
+        kwargs.pop('encoding', None)
+
+        for encoding in encodings:
+            try:
+                # self.log(f"  Attempting read with {encoding}...")
+                df = pd.read_csv(file_path, encoding=encoding, **kwargs)
+                if encoding != 'utf-8':
+                     self.log(f"  ℹ️  Read success with encoding: {encoding}")
+                return df
+            except (UnicodeDecodeError, LookupError):
+                continue
+            except Exception as e:
+                # If it's a structural error (not encoding), raise immediately
+                self.log(f"  ❌ Read Error ({encoding}): {e}")
+                raise e
+        
+        raise UnicodeDecodeError(f"Failed to read {os.path.basename(file_path)} with any of {encodings}")
+ 
         
     def setup_directories(self):
         """สร้าง directory ถ้ายังไม่มี"""
@@ -404,7 +431,7 @@ class RevenueETL:
             
             # อ่านไฟล์
             try:
-                df = pd.read_csv(
+                df = self.read_csv_robust(
                     file,
                     converters={
                         "YEAR": str,
@@ -668,17 +695,10 @@ class RevenueETL:
             for file in monthly_files:
                 self.log(f"  กำลังอ่าน ADJ รายเดือน: {os.path.basename(file)}")
                 try:
-                    df = pd.read_csv(file, encoding='tis-620')
-                except (UnicodeDecodeError, LookupError):
-                    self.log(f"    tis-620 ล้มเหลว, ลอง cp874...")
-                    try:
-                        df = pd.read_csv(file, encoding='cp874')
-                    except Exception as e:
-                        self.log(f"    ❌ อ่านไฟล์ {file} ไม่สำเร็จ: {e}")
-                        continue
+                    df = self.read_csv_robust(file)
                 except Exception as e:
-                    self.log(f"    ❌ อ่านไฟล์ {file} ไม่สำเร็จ: {e}")
-                    continue
+                     self.log(f"    ❌ อ่านไฟล์ {file} ไม่สำเร็จ: {e}")
+                     continue
                 
                 df_adj_monthly = pd.concat([df_adj_monthly, df], ignore_index=True)
             
@@ -715,10 +735,7 @@ class RevenueETL:
             latest_ytd_file = sorted(ytd_files)[-1] # เอาไฟล์ล่าสุดตามชื่อ
             self.log(f"พบ {len(ytd_files)} ไฟล์ YTD. ใช้ไฟล์ล่าสุด: {os.path.basename(latest_ytd_file)}")
             try:
-                df_adj_ytd = pd.read_csv(latest_ytd_file, encoding='tis-620')
-            except (UnicodeDecodeError, LookupError):
-                self.log(f"    tis-620 ล้มเหลว, ลอง cp874...")
-                df_adj_ytd = pd.read_csv(latest_ytd_file, encoding='cp874')
+                df_adj_ytd = self.read_csv_robust(latest_ytd_file)
             except Exception as e:
                  self.log(f"    ❌ อ่านไฟล์ YTD {latest_ytd_file} ไม่สำเร็จ: {e}")
             
