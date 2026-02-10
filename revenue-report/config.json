@@ -19,11 +19,11 @@
     }
   },
   
-  "processing_year": "2025",
+  "processing_year": "2026",
 
   "processing_months": {
-    "fi_current_month": 10,
-    "etl_end_month": 10
+    "fi_current_month": 1,
+    "etl_end_month": 1
   },
 
   "fi_module": {
@@ -95,16 +95,9 @@
       "adj_monthly": "TRN_REVENUE_ADJ_*.csv",
       "adj_ytd": "TRN_REVENUE_ADJ_YTD_*.csv"
     },
-    
-    "output_files": {
-      "concat": "trn_revenue_nt_2025.csv",
-      "mapped_cc": "revenue_new_cc_2025.csv",
-      "mapped_product": "revenue_mapped_product_2025_.csv",
-      "final_report": "REVENUE_NT_REPORT_2025.csv",
-      "error_gl": "error_gl_REVENUE_NT_REPORT_2025.csv",
-      "error_product": "error_product_REVENUE_NT_REPORT_2025.csv"
-    },
-    
+
+    "output_files": {},
+
     "business_rules": {
       "exclude_business_group": "รายได้อื่น",
       "non_telecom_service_group": "กลุ่มบริการอื่นไม่ใช่โทรคมนาคม",

@@ -47,7 +47,7 @@ class ConfigAdapter:
 
         # Master Files
         master_files = etl_config.get('master_files', {})
-        self.MASTER_PRODUCT_FILE = f"MASTER_PRODUCT_NT_{self.YEAR}.csv"
+        self.MASTER_PRODUCT_FILE = master_files.get('product', '')
         self.MASTER_GL_FILE = master_files.get('gl_code', '')
         self.MAPPING_CC_FILE = master_files.get('mapping_cc', '')
         self.MAPPING_PRODUCT_FILE = master_files.get('mapping_product', '')
@@ -142,7 +142,7 @@ class Config:
     ENABLE_RECONCILIATION = True    # True = เปิด, False = ปิด
     
     # ============ ชื่อไฟล์ Master ============
-    MASTER_PRODUCT_FILE = f"MASTER_PRODUCT_NT_{YEAR}.csv"
+    MASTER_PRODUCT_FILE = "MASTER_PRODUCT_NT_2025.csv"
     MASTER_GL_FILE = "source/MASTER_REVENUE_GL_CODE_NT1_NT_20250723.csv"
     MAPPING_CC_FILE = "MAPPING_CC.csv"
     MAPPING_PRODUCT_FILE = "clean/MAP_PRODUCT_NT_NEW_2024.csv"
@@ -939,6 +939,11 @@ class RevenueETL:
         
         # Merge กับ Master Product
         self.log("Merging (NT1) กับ Master Product...")
+
+        # แปลง PRODUCT_KEY และ SUB_PRODUCT_KEY ให้เป็น string เพื่อ match กับ Master
+        df_output["PRODUCT_KEY"] = df_output["PRODUCT_KEY"].astype(str)
+        df_output["SUB_PRODUCT_KEY"] = df_output["SUB_PRODUCT_KEY"].astype(int).astype(str)
+
         df_output = pd.merge(
             df_output,
             df_master_product,
@@ -1032,22 +1037,40 @@ class RevenueETL:
         if not has_error:
             self.log("✓ ข้อมูล GL และ Product (NT1) ถูกต้องครบถ้วน (ADJ ถูกข้ามการตรวจสอบนี้)")
         
-        # ตรวจสอบยอดรวม
+        # ตรวจสอบยอดรวมและแจ้งเตือนถ้ามีรายการหายไป
         grand_total_after = df_output["REVENUE_VALUE"].sum()
-        # grand_total_before คือยอด NT1 (ก่อนกรอง)
-        # grand_total_after คือยอด NT1 (หลังกรอง) + ADJ
-        # การเปรียบเทียบนี้อาจไม่สื่อความหมายแล้ว แต่ยังคงไว้เพื่อดูยอดสุดท้าย
-        
+
+        # คำนวณยอดที่หายไปจากการ mapping ไม่เจอ
+        if has_error:
+            error_file = os.path.join(self.paths["final_output"], self.config.ERROR_PRODUCT_FILE)
+            if os.path.exists(error_file):
+                df_error = pd.read_csv(error_file)
+                if 'REVENUE_VALUE' in df_error.columns:
+                    total_missing = df_error['REVENUE_VALUE'].sum()
+                    missing_records = len(df_error)
+
+                    self.log("=" * 80)
+                    self.log("⚠️  MISSING DATA ALERT")
+                    self.log("=" * 80)
+                    self.log(f"❌ รายการที่ Mapping ไม่เจอ: {missing_records:,} รายการ")
+                    self.log(f"❌ ยอดเงินที่หายไป: {total_missing:,.2f} บาท")
+                    self.log(f"❌ เปอร์เซ็นต์ที่หายไป: {(total_missing/grand_total_before*100):.4f}%")
+                    self.log("=" * 80)
+                    self.log(f"📋 ตรวจสอบรายการที่ผิดพลาดได้ที่: {error_file}")
+                    self.log("=" * 80)
+                    self.log("🔧 แนะนำ: อัปเดต Master Product File ให้รองรับรายการใหม่")
+                    self.log("=" * 80)
+
         self.log(f"Grand Total Before (NT1 Original): {grand_total_before:,.2f}")
         self.log(f"Grand Total After (NT1 Filtered + ADJ):  {grand_total_after:,.2f}")
-        
+
         # บันทึกไฟล์สุดท้าย (ข้อมูลดิบที่รวม ADJ แล้ว)
         output_file = os.path.join(self.paths["final_output"], self.config.OUTPUT_FINAL_REPORT_FILE)
         df_output.to_csv(output_file, index=False)
-        
+
         self.log(f"✓ บันทึกรายงานสุดท้าย (ข้อมูลดิบ): {output_file}")
         self.log(f"✓ ETL Pipeline เสร็จสมบูรณ์!", grand_total_after)
-        
+
         return df_output
     
     def detect_historical_anomalies(self, df_final):
@@ -2240,6 +2263,9 @@ class RevenueETL:
         except Exception as e:
             self.logger.error(f"❌ ไม่สามารถบันทึกไฟล์ Excel ได้ (อาจจะเปิดค้างอยู่): {e}")
             raise
+
+        # NOTE: Reconciliation Sheet ถูกลบออกตามคำขอของผู้ใช้
+        # ระบบจะแจ้งเตือน mapping errors ผ่าน console แทน
 
         # Format Excel
         format_excel(excel_output_file, anomaly_map=historical_anomalies)

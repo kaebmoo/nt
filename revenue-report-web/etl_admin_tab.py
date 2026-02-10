@@ -683,15 +683,28 @@ def show_dashboard():
         output_path = etl_config['paths']['output']
         final_output_path = etl_config['paths']['final_output']
 
-        output_files = etl_config['output_files']
+        # Get output_files with defaults
+        output_files = etl_config.get('output_files', {})
+        year = st.session_state.etl_config_manager.config.get('processing_year', '2026')
+
+        # Define default filenames if not in config
+        default_files = {
+            'concat': f'trn_revenue_nt_{year}.csv',
+            'mapped_cc': f'revenue_new_cc_{year}.csv',
+            'mapped_product': f'revenue_mapped_product_{year}_.csv',
+            'final_report': f'REVENUE_NT_REPORT_{year}.csv',
+            'error_gl': f'error_gl_REVENUE_NT_REPORT_{year}.csv',
+            'error_product': f'error_product_REVENUE_NT_REPORT_{year}.csv'
+        }
 
         col1, col2, col3 = st.columns(3)
 
         with col1:
             st.markdown("**Intermediate Files**")
             for key in ['concat', 'mapped_cc', 'mapped_product']:
-                if key in output_files:
-                    file_path = os.path.join(output_path, output_files[key])
+                filename = output_files.get(key, default_files.get(key, ''))
+                if filename:
+                    file_path = os.path.join(output_path, filename)
                     file_info = check_file_exists(file_path)
                     if file_info['exists']:
                         st.success(f"✅ {key}")
@@ -701,19 +714,22 @@ def show_dashboard():
 
         with col2:
             st.markdown("**Final Report**")
-            final_file = os.path.join(final_output_path, output_files['final_report'])
-            file_info = check_file_exists(final_file)
-            if file_info['exists']:
-                st.success(f"✅ Final Report")
-                st.caption(f"{file_info['size_kb']:.1f} KB")
-            else:
-                st.warning(f"⚠️ Final Report")
+            filename = output_files.get('final_report', default_files.get('final_report', ''))
+            if filename:
+                final_file = os.path.join(final_output_path, filename)
+                file_info = check_file_exists(final_file)
+                if file_info['exists']:
+                    st.success(f"✅ Final Report")
+                    st.caption(f"{file_info['size_kb']:.1f} KB")
+                else:
+                    st.warning(f"⚠️ Final Report")
 
         with col3:
             st.markdown("**Error Files**")
             for key in ['error_gl', 'error_product']:
-                if key in output_files:
-                    file_path = os.path.join(final_output_path, output_files[key])
+                filename = output_files.get(key, default_files.get(key, ''))
+                if filename:
+                    file_path = os.path.join(final_output_path, filename)
                     file_info = check_file_exists(file_path)
                     if file_info['exists']:
                         if file_info['size_kb'] > 1:  # มี errors
@@ -1372,15 +1388,20 @@ def show_configuration():
     with col2:
         st.markdown("### 🟢 :green[Output Files] *(Info)*")
         st.caption("💾 ชื่อไฟล์ผลลัพธ์จาก ETL pipeline - รองรับ template variables")
-        etl_output_concat = st.text_input("Concat File", value=config['etl_module']['output_files']['concat'], key="etl_output_concat")
-        etl_output_mapped_cc = st.text_input("Mapped Cost Center", value=config['etl_module']['output_files']['mapped_cc'], key="etl_output_mapped_cc")
-        etl_output_mapped_product = st.text_input("Mapped Product", value=config['etl_module']['output_files']['mapped_product'], key="etl_output_mapped_product")
-        etl_output_final = st.text_input("Final Report", value=config['etl_module']['output_files']['final_report'], key="etl_output_final")
+
+        # Get output_files with defaults based on processing_year
+        output_files = config['etl_module'].get('output_files', {})
+        year = config.get('processing_year', '2026')
+
+        etl_output_concat = st.text_input("Concat File", value=output_files.get('concat', f'trn_revenue_nt_{year}.csv'), key="etl_output_concat")
+        etl_output_mapped_cc = st.text_input("Mapped Cost Center", value=output_files.get('mapped_cc', f'revenue_new_cc_{year}.csv'), key="etl_output_mapped_cc")
+        etl_output_mapped_product = st.text_input("Mapped Product", value=output_files.get('mapped_product', f'revenue_mapped_product_{year}_.csv'), key="etl_output_mapped_product")
+        etl_output_final = st.text_input("Final Report", value=output_files.get('final_report', f'REVENUE_NT_REPORT_{year}.csv'), key="etl_output_final")
 
         st.markdown("#### Error Files")
         st.caption("🚨 ไฟล์ที่บันทึก records ที่ mapping ไม่สำเร็จ")
-        etl_output_error_gl = st.text_input("Error GL", value=config['etl_module']['output_files']['error_gl'], key="etl_output_error_gl")
-        etl_output_error_product = st.text_input("Error Product", value=config['etl_module']['output_files']['error_product'], key="etl_output_error_product")
+        etl_output_error_gl = st.text_input("Error GL", value=output_files.get('error_gl', f'error_gl_REVENUE_NT_REPORT_{year}.csv'), key="etl_output_error_gl")
+        etl_output_error_product = st.text_input("Error Product", value=output_files.get('error_product', f'error_product_REVENUE_NT_REPORT_{year}.csv'), key="etl_output_error_product")
 
     # Section 4: Business Rules
     st.markdown("---")
@@ -1570,7 +1591,10 @@ def show_configuration():
                 config['etl_module']['input_patterns']['adj_monthly'] = etl_input_adj_monthly
                 config['etl_module']['input_patterns']['adj_ytd'] = etl_input_adj_ytd
 
-                # Update ETL module - output files
+                # Update ETL module - output files (ensure output_files exists)
+                if 'output_files' not in config['etl_module']:
+                    config['etl_module']['output_files'] = {}
+
                 config['etl_module']['output_files']['concat'] = etl_output_concat
                 config['etl_module']['output_files']['mapped_cc'] = etl_output_mapped_cc
                 config['etl_module']['output_files']['mapped_product'] = etl_output_mapped_product
@@ -1758,12 +1782,20 @@ def show_logs():
     if get_etl_status():
         etl_config = st.session_state.etl_config_manager.get_etl_config()
         final_output_path = etl_config['paths']['final_output']
-        output_files = etl_config['output_files']
+        # Get output_files with defaults
+        output_files = etl_config.get('output_files', {})
+        year = st.session_state.etl_config_manager.config.get('processing_year', '2026')
+
+        default_files = {
+            'error_gl': f'error_gl_REVENUE_NT_REPORT_{year}.csv',
+            'error_product': f'error_product_REVENUE_NT_REPORT_{year}.csv'
+        }
 
         error_files = {}
         for key in ['error_gl', 'error_product']:
-            if key in output_files:
-                file_path = os.path.join(final_output_path, output_files[key])
+            filename = output_files.get(key, default_files.get(key, ''))
+            if filename:
+                file_path = os.path.join(final_output_path, filename)
                 if os.path.exists(file_path):
                     error_files[key] = file_path
 
