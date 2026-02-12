@@ -274,6 +274,15 @@ def main():
         # สร้าง system instance
         system = RevenueETLSystem(args.config)
 
+        # Override year ถ้ามีการระบุ --year
+        if args.year:
+            system.log(f"📅 Override ปีเป็น: {args.year}", "INFO")
+            system.config_manager.set_processing_year(args.year)
+
+            # Reload config หลัง override
+            system.fi_config = system.config_manager.get_fi_config()
+            system.etl_config = system.config_manager.get_etl_config()
+
         # Override month ถ้ามีการระบุ --month
         if args.month:
             if not 1 <= args.month <= 12:
@@ -286,9 +295,6 @@ def main():
             # Reload config หลัง override
             system.fi_config = system.config_manager.get_fi_config()
             system.etl_config = system.config_manager.get_etl_config()
-
-        if args.year:
-            system.log(f"การ Override ปี ({args.year}) ยังไม่รองรับเต็มรูปแบบ", "WARNING")
         
         # รัน module ตามที่เลือก
         success = False

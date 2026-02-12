@@ -402,6 +402,23 @@ class ConfigManager:
 
         self.logger.success(f"อัพเดทเดือนสำหรับประมวลผล: {month:02d}")
 
+    def set_processing_year(self, year: str) -> None:
+        """
+        กำหนดปีที่ต้องการประมวลผล (runtime override)
+
+        Args:
+            year: ปีที่ต้องการประมวลผล (เช่น "2025")
+        """
+        year_str = str(year)
+
+        # อัพเดทปีใน config
+        self.config['processing_year'] = year_str
+
+        # อัพเดท paths ใหม่ (เพราะ paths ใช้ year)
+        self._setup_paths()
+
+        self.logger.success(f"อัพเดทปีสำหรับประมวลผล: {year_str}")
+
     def get_processing_months(self) -> Dict[str, int]:
         """
         ดึงข้อมูลเดือนที่กำลังประมวลผล
