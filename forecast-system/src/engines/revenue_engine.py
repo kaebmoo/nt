@@ -109,8 +109,18 @@ class RevenueForecastEngine:
             # Filter data for this dimension
             df_subset = df[df[dimension] == dim_value].copy()
 
+            # Check if subset has data
+            if len(df_subset) == 0:
+                print(f"    ✗ Skipped: No data for {dim_value}")
+                continue
+
             # Aggregate by date
             df_agg = df_subset.groupby(date_column)[value_column].sum().reset_index()
+
+            # Check if aggregated data is sufficient
+            if len(df_agg) < 3:
+                print(f"    ✗ Skipped: Insufficient data ({len(df_agg)} periods) for {dim_value}")
+                continue
 
             try:
                 # Get model

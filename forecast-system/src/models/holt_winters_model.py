@@ -60,6 +60,10 @@ class HoltWintersModel(BaseForecastModel):
         df_prep = self.prepare_data(df, date_column, value_column)
         self.df_prep = df_prep
 
+        # Check minimum data requirement
+        if len(df_prep) < 3:
+            raise ValueError(f"Insufficient data for Holt-Winters: need at least 3 periods, got {len(df_prep)}")
+
         # Check if we have enough data for seasonality
         if len(df_prep) < 2 * self.seasonal_periods:
             print(f"Warning: Not enough data for seasonal_periods={self.seasonal_periods}")

@@ -69,11 +69,20 @@ class XGBoostModel(BaseForecastModel):
         df_prep = self.prepare_data(df, date_column, value_column)
         self.df_prep = df_prep
 
+        # Check if we have enough data
+        min_required_periods = max(self.lag_features + self.rolling_features) if (self.lag_features or self.rolling_features) else 3
+        if len(df_prep) < min_required_periods:
+            raise ValueError(f"Insufficient data: need at least {min_required_periods} periods, got {len(df_prep)}")
+
         # Create features
         df_features = self._create_features(df_prep, exog)
 
         # Remove rows with NaN (from lag features)
         df_features = df_features.dropna()
+
+        # Final check after dropna
+        if len(df_features) == 0:
+            raise ValueError("No valid data remaining after feature creation and cleaning")
 
         # Prepare X and y
         feature_cols = [col for col in df_features.columns if col not in ['ds', 'y']]

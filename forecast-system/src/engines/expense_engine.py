@@ -293,8 +293,18 @@ class ExpenseForecastEngine:
             # Filter data
             df_gl = df[df[gl_column] == gl_code].copy()
 
+            # Check if data exists
+            if len(df_gl) == 0:
+                print(f"    ✗ Skipped: No data for GL code {gl_code}")
+                continue
+
             # Aggregate by date
             df_agg = df_gl.groupby(date_column)[value_column].sum().reset_index()
+
+            # Check if aggregated data is sufficient
+            if len(df_agg) < 3:
+                print(f"    ✗ Skipped: Insufficient data ({len(df_agg)} periods) for GL code {gl_code}")
+                continue
 
             # Classify expense type
             cv = df_agg[value_column].std() / df_agg[value_column].mean()

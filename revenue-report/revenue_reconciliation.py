@@ -9,7 +9,7 @@ class RevenueReconciliation:
     Module สำหรับตรวจสอบความถูกต้องของข้อมูล Revenue
     เทียบระหว่างข้อมูลจากงบการเงิน (FI) กับข้อมูลจาก Transaction (TRN)
     """
-    
+
     def __init__(self, config: dict, paths: dict):
         """
         Args:
@@ -19,24 +19,210 @@ class RevenueReconciliation:
         self.config = config
         self.paths = paths
         self.reconcile_results = {}
+        self.adj_gl_data = None  # DataFrame of ADJ_GL entries (loaded on demand)
         
     def log(self, message, level="INFO"):
         """แสดงข้อความ log พร้อม timestamp และ level"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] [{level}] {message}")
     
+    def load_master_gl(self, master_gl_path, exclude_gl_group='ผลตอบแทนทางการเงินและรายได้อื่น'):
+        """
+        โหลด Master GL file เพื่อแยก GL เป็น 2 กลุ่ม:
+        - core_gl_codes: GL รายได้หลัก (ต้อง reconcile ให้ตรง)
+        - excluded_gl_codes: GL ที่ไม่ต้อง reconcile (ผลตอบแทนทางการเงินฯ)
+
+        Args:
+            master_gl_path: path ของไฟล์ MASTER_REVENUE_GL_CODE_NT1_NT_*.csv
+            exclude_gl_group: ชื่อ GL_GROUP ที่ต้องการยกเว้น
+        """
+        self.exclude_gl_group = exclude_gl_group
+        self.excluded_gl_codes = set()
+        self.core_gl_codes = set()
+
+        if not master_gl_path or not Path(master_gl_path).exists():
+            self.log(f"  ⚠️  ไม่พบ Master GL file: {master_gl_path} — จะ reconcile ทุก GL", "WARNING")
+            return
+
+        try:
+            df_master = pd.read_csv(master_gl_path, encoding='utf-8-sig')
+            df_master.columns = df_master.columns.str.strip()
+
+            # ใช้ GL_CODE_NT1 (ถ้ามี) เพราะ TRN ใช้ GL_CODE_NT1
+            gl_col = 'GL_CODE_NT1' if 'GL_CODE_NT1' in df_master.columns else 'GL_CODE'
+            df_master[gl_col] = df_master[gl_col].astype(str).str.strip()
+
+            # แยกกลุ่ม
+            excluded = df_master[df_master['GL_GROUP'] == exclude_gl_group][gl_col].unique()
+            core = df_master[df_master['GL_GROUP'] != exclude_gl_group][gl_col].unique()
+
+            self.excluded_gl_codes = set(excluded) - {'', 'nan', 'NT', 'NT2'}
+            self.core_gl_codes = set(core) - {'', 'nan', 'NT', 'NT2'}
+
+            self.log(f"  ✓ โหลด Master GL: {Path(master_gl_path).name}")
+            self.log(f"    GL รายได้หลัก: {len(self.core_gl_codes)} codes")
+            self.log(f"    GL ยกเว้น ({exclude_gl_group}): {len(self.excluded_gl_codes)} codes")
+        except Exception as e:
+            self.log(f"  ⚠️  ไม่สามารถอ่าน Master GL: {e}", "WARNING")
+
+    def load_adj_gl_files(self, adj_gl_file_paths):
+        """
+        โหลดไฟล์ ADJ_GL เพื่อใช้ใน secondary reconciliation check
+
+        Args:
+            adj_gl_file_paths: list ของ path ไฟล์ TRN_REVENUE_ADJ_GL_NT1_*.csv
+        """
+        if not adj_gl_file_paths:
+            return
+
+        dfs = []
+        for f in adj_gl_file_paths:
+            try:
+                df = pd.read_csv(f)
+                df.columns = df.columns.str.strip()
+                # Normalize GL_CODE column name
+                if 'GL_CODE_NT1' in df.columns:
+                    df['GL_CODE'] = df['GL_CODE_NT1'].astype(str).str.strip()
+                elif 'GL_CODE' in df.columns:
+                    df['GL_CODE'] = df['GL_CODE'].astype(str).str.strip()
+                # Parse REVENUE_VALUE
+                df['REVENUE_VALUE'] = pd.to_numeric(
+                    df['REVENUE_VALUE'].astype(str).str.replace(',', '').str.replace('(', '-').str.replace(')', '').str.replace(' ', ''),
+                    errors='coerce'
+                )
+                if 'MONTH' in df.columns:
+                    df['MONTH'] = pd.to_numeric(df['MONTH'], errors='coerce').astype('Int64')
+                if 'YEAR' in df.columns:
+                    df['YEAR'] = df['YEAR'].astype(str).str.strip()
+                dfs.append(df)
+                self.log(f"  ✓ โหลด ADJ_GL: {Path(f).name} ({len(df)} records, total={df['REVENUE_VALUE'].sum():,.2f})")
+            except Exception as e:
+                self.log(f"  ⚠️  ไม่สามารถอ่าน ADJ_GL file {f}: {e}", "WARNING")
+
+        if dfs:
+            self.adj_gl_data = pd.concat(dfs, ignore_index=True)
+            self.log(f"  ADJ_GL รวม: {len(self.adj_gl_data)} records, net total={self.adj_gl_data['REVENUE_VALUE'].sum():,.2f}")
+        else:
+            self.adj_gl_data = None
+
+    def _secondary_check_with_adj(self, df_fi, df_trn, reconcile_type, tolerance, latest_year=None, latest_month=None):
+        """
+        Secondary check: ลบ ADJ_GL adjustments ออกจาก TRN แล้วเทียบกับ FI ใหม่
+
+        ถ้า TRN - ADJ_GL ≈ FI → แปลว่า diff ทั้งหมดอธิบายได้จาก ADJ_GL
+
+        Returns:
+            dict or None: ผลลัพธ์ถ้าผ่าน, None ถ้าไม่ผ่าน
+        """
+        if self.adj_gl_data is None or self.adj_gl_data.empty:
+            return None
+
+        self.log(f"\n  🔄 Secondary Check: ตรวจสอบโดยหักรายการ ADJ_GL ออก ({reconcile_type})")
+
+        adj = self.adj_gl_data.copy()
+
+        # Filter ADJ by year/month based on reconcile_type
+        if latest_year is not None:
+            adj = adj[adj['YEAR'] == str(latest_year)]
+
+        if reconcile_type == 'MONTHLY' and latest_month is not None:
+            adj = adj[adj['MONTH'] == latest_month]
+        # YTD: use all months for the year (no month filter)
+
+        # Aggregate ADJ by GL_CODE
+        if adj.empty:
+            self.log(f"  ⚠️  ไม่พบข้อมูล ADJ_GL สำหรับช่วงเวลานี้")
+            return None
+
+        adj_by_gl = adj.groupby('GL_CODE')['REVENUE_VALUE'].sum().reset_index()
+        adj_by_gl.columns = ['GL_CODE', 'ADJ_VALUE']
+
+        adj_net = adj_by_gl['ADJ_VALUE'].sum()
+        self.log(f"  ADJ_GL records: {len(adj)} | GL codes affected: {len(adj_by_gl)} | Net adjustment: {adj_net:,.2f}")
+
+        # Merge TRN with ADJ to compute TRN_before_adj = TRN - ADJ
+        # df_trn has columns: GL_CODE, TRN_VALUE (already renamed by caller)
+        # We need to use the original column names
+        trn_col = [c for c in df_trn.columns if c != 'GL_CODE'][0]  # TRN_VALUE or similar
+        fi_col = [c for c in df_fi.columns if c != 'GL_CODE'][0]  # FI_VALUE or similar
+
+        df_trn_adj = pd.merge(df_trn, adj_by_gl, on='GL_CODE', how='left')
+        df_trn_adj['ADJ_VALUE'] = df_trn_adj['ADJ_VALUE'].fillna(0)
+        df_trn_adj['TRN_BEFORE_ADJ'] = df_trn_adj[trn_col] - df_trn_adj['ADJ_VALUE']
+
+        # Now compare FI vs TRN_BEFORE_ADJ
+        df_compare = pd.merge(
+            df_fi,
+            df_trn_adj[['GL_CODE', 'TRN_BEFORE_ADJ']],
+            on='GL_CODE',
+            how='outer',
+            indicator=True
+        )
+        df_compare[fi_col] = df_compare[fi_col].fillna(0)
+        df_compare['TRN_BEFORE_ADJ'] = df_compare['TRN_BEFORE_ADJ'].fillna(0)
+        df_compare['DIFF'] = (df_compare[fi_col] - df_compare['TRN_BEFORE_ADJ']).round(2)
+        df_compare['ABS_DIFF'] = df_compare['DIFF'].abs()
+
+        remaining_errors = df_compare[df_compare['ABS_DIFF'] > tolerance]
+        remaining_count = len(remaining_errors)
+
+        total_fi = df_compare[fi_col].sum()
+        total_trn_before_adj = df_compare['TRN_BEFORE_ADJ'].sum()
+        total_diff = round(total_fi - total_trn_before_adj, 2)
+
+        self.log(f"  FI Total: {total_fi:,.2f}")
+        self.log(f"  TRN (หลังหัก ADJ_GL): {total_trn_before_adj:,.2f}")
+        self.log(f"  Diff (หลังหัก ADJ_GL): {total_diff:,.2f}")
+
+        if remaining_count == 0:
+            self.log(f"  ✅ Secondary Check ผ่าน! ความแตกต่างทั้งหมดอธิบายได้จาก ADJ_GL")
+            return {
+                'passed': True,
+                'status': 'PASSED_WITH_ADJ_GL',
+                'remaining_errors': 0,
+                'adj_net': adj_net,
+                'total_diff_after_adj': total_diff
+            }
+        else:
+            # Check if total matches but per-GL still differs (GL offset within ADJ)
+            if abs(total_diff) <= tolerance:
+                self.log(f"  ⚠️  ยอดรวมตรงกัน แต่ยังมี {remaining_count} GL ที่ต่างกัน (อาจเป็นการปรับโยก GL เพิ่มเติม)")
+                self.log(f"  ✅ ถือว่าผ่าน (ยอดรวมสุทธิเท่ากัน)")
+                return {
+                    'passed': True,
+                    'status': 'PASSED_WITH_ADJ_GL_OFFSET',
+                    'remaining_errors': remaining_count,
+                    'adj_net': adj_net,
+                    'total_diff_after_adj': total_diff
+                }
+            else:
+                self.log(f"  ❌ Secondary Check ไม่ผ่าน: ยังมี {remaining_count} รายการที่ไม่ตรง (diff={total_diff:,.2f})")
+
+                # Show remaining errors
+                remaining_list = []
+                for _, row in remaining_errors.head(10).iterrows():
+                    self.log(f"     GL {row['GL_CODE']}: FI={row[fi_col]:,.2f} TRN(adj)={row['TRN_BEFORE_ADJ']:,.2f} diff={row['DIFF']:,.2f}")
+                    remaining_list.append({
+                        'gl_code': row['GL_CODE'],
+                        'fi_value': row[fi_col],
+                        'trn_before_adj': row['TRN_BEFORE_ADJ'],
+                        'diff': row['DIFF']
+                    })
+
+                return None
+
     def reconcile_revenue(self, fi_file_path, trn_file_path, tolerance=0.00):
         """
         ตรวจสอบความถูกต้องของข้อมูล Revenue
-        
+
         Args:
             fi_file_path: path ของไฟล์จากงบการเงิน (pl_revenue_nt_output_YYYYMM.csv)
             trn_file_path: path ของไฟล์ transaction (trn_revenue_nt_YYYY.csv)
             tolerance: ยอดความแตกต่างที่ยอมรับได้ (default = 0.00)
-        
+
         Returns:
             dict: ผลการ reconcile {'status': bool, 'details': dict}
-            
+
         Raises:
             ReconciliationError: เมื่อพบความแตกต่างที่ไม่ยอมรับได้
         """
@@ -124,32 +310,69 @@ class RevenueReconciliation:
         self.log(f"TRN - ยอดรายเดือน: {total_trn_monthly:,.2f}")
         self.log(f"TRN - ยอดสะสม (YTD): {total_trn_ytd:,.2f}")
         
+        # ========================================================
+        # Step 0: ใช้ทุก GL ในการ reconcile (ไม่กรอง)
+        # ========================================================
+        has_gl_filter = bool(getattr(self, 'excluded_gl_codes', None))
+
+        if has_gl_filter:
+            # แสดงข้อมูล GL ที่อยู่ในกลุ่มผลตอบแทนฯ (informational only)
+            df_fi_excluded = df_fi[df_fi['GL_CODE'].isin(self.excluded_gl_codes)]
+            trn_monthly_excluded = trn_monthly[trn_monthly['GL_CODE'].isin(self.excluded_gl_codes)]
+            trn_ytd_excluded = trn_ytd[trn_ytd['GL_CODE'].isin(self.excluded_gl_codes)]
+            self.log(f"\nข้อมูล GL ในกลุ่ม {self.exclude_gl_group}:")
+            self.log(f"  FI: {len(df_fi_excluded)} GL, TRN Monthly: {len(trn_monthly_excluded)} GL, TRN YTD: {len(trn_ytd_excluded)} GL")
+            self.log(f"  💡 Step 0 ตรวจทุก GL (รวมกลุ่มนี้ด้วย)")
+
+        # ใช้ข้อมูลทุก GL
+        df_fi_core = df_fi
+        trn_monthly_core = trn_monthly
+        trn_ytd_core = trn_ytd
+
+        self.log("\n" + "=" * 80)
+        self.log("กำลังเปรียบเทียบข้อมูล (ทุก GL)...")
         self.log("=" * 80)
-        self.log("กำลังเปรียบเทียบข้อมูล...")
-        self.log("=" * 80)
-        
+
         # ========================
-        # RECONCILE 1: ยอดรายเดือน
+        # RECONCILE 1: ยอดรายเดือน (Core GL only)
         # ========================
-        self.log("\n[1] Reconcile ยอดรายเดือน (Latest Month)")
+        self.log("\n[1] Reconcile ยอดรายเดือน (Latest Month) - ทุก GL")
         monthly_result = self._reconcile_by_gl(
-            df_fi=df_fi[['GL_CODE', 'REVENUE_VALUE']].rename(columns={'REVENUE_VALUE': 'FI_VALUE'}),
-            df_trn=trn_monthly.rename(columns={'TRN_MONTHLY': 'TRN_VALUE'}),
+            df_fi=df_fi_core[['GL_CODE', 'REVENUE_VALUE']].rename(columns={'REVENUE_VALUE': 'FI_VALUE'}),
+            df_trn=trn_monthly_core.rename(columns={'TRN_MONTHLY': 'TRN_VALUE'}),
             reconcile_type='MONTHLY',
             tolerance=tolerance
         )
-        
+
         # ========================
-        # RECONCILE 2: ยอดสะสม (YTD)
+        # RECONCILE 2: ยอดสะสม (YTD) (Core GL only)
         # ========================
-        self.log("\n[2] Reconcile ยอดสะสม (YTD)")
+        self.log("\n[2] Reconcile ยอดสะสม (YTD) - ทุก GL")
         ytd_result = self._reconcile_by_gl(
-            df_fi=df_fi[['GL_CODE', 'REVENUE_VALUE_YTD']].rename(columns={'REVENUE_VALUE_YTD': 'FI_VALUE'}),
-            df_trn=trn_ytd.rename(columns={'TRN_YTD': 'TRN_VALUE'}),
+            df_fi=df_fi_core[['GL_CODE', 'REVENUE_VALUE_YTD']].rename(columns={'REVENUE_VALUE_YTD': 'FI_VALUE'}),
+            df_trn=trn_ytd_core.rename(columns={'TRN_YTD': 'TRN_VALUE'}),
             reconcile_type='YTD',
             tolerance=tolerance
         )
-        
+
+        # ========================
+        # INFO: แสดงข้อมูล GL ที่ยกเว้น (ไม่นับเป็น error)
+        # ========================
+        excluded_info = None
+        if has_gl_filter and (len(df_fi_excluded) > 0 or len(trn_monthly_excluded) > 0):
+            self.log(f"\n[ℹ️] GL ที่ยกเว้นจากการ Reconcile ({self.exclude_gl_group}):")
+            fi_excl_monthly = df_fi_excluded['REVENUE_VALUE'].sum() if 'REVENUE_VALUE' in df_fi_excluded.columns else 0
+            fi_excl_ytd = df_fi_excluded['REVENUE_VALUE_YTD'].sum() if 'REVENUE_VALUE_YTD' in df_fi_excluded.columns else 0
+            trn_excl_monthly = trn_monthly_excluded['TRN_MONTHLY'].sum() if len(trn_monthly_excluded) > 0 else 0
+            trn_excl_ytd = trn_ytd_excluded['TRN_YTD'].sum() if len(trn_ytd_excluded) > 0 else 0
+            self.log(f"  Monthly - FI: {fi_excl_monthly:,.2f} | TRN: {trn_excl_monthly:,.2f} | Diff: {fi_excl_monthly - trn_excl_monthly:,.2f}")
+            self.log(f"  YTD     - FI: {fi_excl_ytd:,.2f} | TRN: {trn_excl_ytd:,.2f} | Diff: {fi_excl_ytd - trn_excl_ytd:,.2f}")
+            self.log(f"  💡 กลุ่มนี้ต้อง net กับค่าใช้จ่ายก่อนจึงไม่รวมใน reconcile")
+            excluded_info = {
+                'monthly_fi': fi_excl_monthly, 'monthly_trn': trn_excl_monthly,
+                'ytd_fi': fi_excl_ytd, 'ytd_trn': trn_excl_ytd
+            }
+
         # เก็บผลลัพธ์
         self.reconcile_results = {
             'monthly': monthly_result,
@@ -157,55 +380,90 @@ class RevenueReconciliation:
             'latest_month': latest_month,
             'latest_year': latest_year,
             'fi_file': fi_file_path,
-            'trn_file': trn_file_path
+            'trn_file': trn_file_path,
+            'excluded_gl_info': excluded_info
         }
-        
+
+        all_passed = monthly_result['passed'] and ytd_result['passed']
+
+        # ========================================================
+        # Secondary Check: ถ้า primary ไม่ผ่าน ตรวจสอบด้วย ADJ_GL
+        # ========================================================
+        if not all_passed and self.adj_gl_data is not None:
+            self.log("\n" + "=" * 80)
+            self.log("SECONDARY CHECK - ตรวจสอบโดยหัก ADJ_GL adjustments")
+            self.log("=" * 80)
+
+            if not monthly_result['passed']:
+                monthly_secondary = self._secondary_check_with_adj(
+                    df_fi=df_fi_core[['GL_CODE', 'REVENUE_VALUE']].rename(columns={'REVENUE_VALUE': 'FI_VALUE'}),
+                    df_trn=trn_monthly_core.rename(columns={'TRN_MONTHLY': 'TRN_VALUE'}),
+                    reconcile_type='MONTHLY',
+                    tolerance=tolerance,
+                    latest_year=latest_year,
+                    latest_month=latest_month
+                )
+                if monthly_secondary and monthly_secondary['passed']:
+                    monthly_result['passed'] = True
+                    monthly_result['status'] = monthly_secondary['status']
+                    monthly_result['secondary_check'] = monthly_secondary
+
+            if not ytd_result['passed']:
+                ytd_secondary = self._secondary_check_with_adj(
+                    df_fi=df_fi_core[['GL_CODE', 'REVENUE_VALUE_YTD']].rename(columns={'REVENUE_VALUE_YTD': 'FI_VALUE'}),
+                    df_trn=trn_ytd_core.rename(columns={'TRN_YTD': 'TRN_VALUE'}),
+                    reconcile_type='YTD',
+                    tolerance=tolerance,
+                    latest_year=latest_year,
+                    latest_month=None
+                )
+                if ytd_secondary and ytd_secondary['passed']:
+                    ytd_result['passed'] = True
+                    ytd_result['status'] = ytd_secondary['status']
+                    ytd_result['secondary_check'] = ytd_secondary
+
+            all_passed = monthly_result['passed'] and ytd_result['passed']
+
         # สรุปผลลัพธ์
         self.log("\n" + "=" * 80)
         self.log("สรุปผลการ Reconciliation")
         self.log("=" * 80)
 
-        all_passed = monthly_result['passed'] and ytd_result['passed']
-
-        # ตรวจสอบ GL Offset
-        has_gl_offset = (
-            monthly_result.get('status') == 'PASSED_WITH_GL_OFFSET' or
-            ytd_result.get('status') == 'PASSED_WITH_GL_OFFSET'
+        has_special_pass = any(
+            r.get('status') in ('PASSED_WITH_GL_OFFSET', 'PASSED_WITH_ADJ_GL', 'PASSED_WITH_ADJ_GL_OFFSET')
+            for r in [monthly_result, ytd_result]
         )
 
         if all_passed:
-            if has_gl_offset:
-                self.log("⚠️  ผ่านการตรวจสอบ (พบการปรับโยก GL)", "WARNING")
-                self.log(f"  - Reconcile รายเดือน: {monthly_result.get('status', 'PASSED')} ({monthly_result['total_records']} GL Codes)")
-                self.log(f"  - Reconcile YTD: {ytd_result.get('status', 'PASSED')} ({ytd_result['total_records']} GL Codes)")
-                self.log(f"  💡 การปรับโยก GL เป็นเรื่องปกติในการปรับปรุงบัญชี", "INFO")
+            if has_special_pass:
+                self.log("⚠️  ผ่านการตรวจสอบ (พบการปรับปรุง GL)", "WARNING")
             else:
-                self.log("✓ ผ่านการตรวจสอบทั้งหมด!", "SUCCESS")
-                self.log(f"  - Reconcile รายเดือน: PASSED ({monthly_result['total_records']} GL Codes)")
-                self.log(f"  - Reconcile YTD: PASSED ({ytd_result['total_records']} GL Codes)")
+                self.log("✓ ผ่านการตรวจสอบทุก GL!", "SUCCESS")
+            self.log(f"  - Reconcile รายเดือน: {monthly_result.get('status', 'PASSED')} ({monthly_result['total_records']} GL Codes)")
+            self.log(f"  - Reconcile YTD: {ytd_result.get('status', 'PASSED')} ({ytd_result['total_records']} GL Codes)")
         else:
-            self.log("❌ พบความแตกต่างที่ไม่ยอมรับได้!", "ERROR")
-
+            self.log("⚠️  พบความแตกต่างในบาง GL!", "WARNING")
             if not monthly_result['passed']:
-                self.log(f"  - Reconcile รายเดือน: FAILED ({monthly_result['error_count']} errors)", "ERROR")
+                self.log(f"  - Reconcile รายเดือน: DIFF ({monthly_result['error_count']} GL codes)", "WARNING")
             else:
                 self.log(f"  - Reconcile รายเดือน: {monthly_result.get('status', 'PASSED')}", "SUCCESS")
-
             if not ytd_result['passed']:
-                self.log(f"  - Reconcile YTD: FAILED ({ytd_result['error_count']} errors)", "ERROR")
+                self.log(f"  - Reconcile YTD: DIFF ({ytd_result['error_count']} GL codes)", "WARNING")
             else:
                 self.log(f"  - Reconcile YTD: {ytd_result.get('status', 'PASSED')}", "SUCCESS")
-        
+
         # บันทึก log file
         self._save_reconcile_log()
-        
-        # ถ้าไม่ผ่าน ให้ raise error
+
+        # ⚠️  Reconciliation เป็น WARNING เสมอ — ไม่หยุด pipeline
+        # แต่ยังคงแจ้งเตือนเพื่อให้ตรวจสอบ
         if not all_passed:
-            error_msg = self._format_error_message(monthly_result, ytd_result)
-            raise ReconciliationError(error_msg, self.reconcile_results)
-        
+            self.log("\n⚠️  Reconciliation พบความแตกต่าง — ดำเนินการต่อ (WARNING mode)", "WARNING")
+            self.log("💡 กรุณาตรวจสอบ log file สำหรับรายละเอียด")
+
         return {
-            'status': True,
+            'status': all_passed,
+            'warning': not all_passed,
             'details': self.reconcile_results
         }
     

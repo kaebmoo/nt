@@ -100,9 +100,6 @@ class ConfigAdapter:
 
         # Validation Thresholds
         self.GRAND_TOTAL_DIFF_THRESHOLD = etl_config.get('grand_total_diff_threshold', 0.01)
-        validation = etl_config.get('validation', {})
-        self.FI_STATEMENT_FILE = validation.get('fi_statement_file', None)
-        self.FI_STATEMENT_DIR = validation.get('fi_statement_dir', None)
 
         # Anomaly Detection Settings
         anomaly = etl_config.get('anomaly_detection', {})
@@ -356,67 +353,50 @@ class RevenueETL:
             self.log("⚠️  Reconciliation ถูกปิดใช้งาน")
             return None
 
-        # สำหรับ V2: ส่ง config_dict (ถ้ามี), สำหรับ V1: ส่ง dict ที่มี year
-        if self.config_dict is not None:
-            config_to_pass = self.config_dict.copy()
-            # Map processing_year to year for compatibility
-            if 'processing_year' in config_to_pass and 'year' not in config_to_pass:
-                config_to_pass['year'] = config_to_pass['processing_year']
-        else:
-            config_to_pass = {'year': self.config.YEAR}
+        # สำหรับ V2: ส่ง config_dict (ถ้ามี), สำหรับ V1: ส่ง config object
+        config_to_pass = self.config_dict if self.config_dict is not None else self.config
         reconciler = RevenueReconciliation(config_to_pass, self.paths)
-
-        # โหลด Master GL file เพื่อแยก GL รายได้หลัก vs ผลตอบแทนฯ
-        master_gl_file = os.path.join(self.paths["master"], self.config.MASTER_GL_FILE)
-        reconciler.load_master_gl(master_gl_file)
-
-        # โหลด ADJ_GL files สำหรับ secondary reconciliation check
-        adj_gl_pattern = os.path.join(self.paths["input"], "TRN_REVENUE_ADJ_GL_NT1_*.csv")
-        adj_gl_files = sorted(glob.glob(adj_gl_pattern))
-        if adj_gl_files:
-            self.log(f"พบไฟล์ ADJ_GL {len(adj_gl_files)} ไฟล์ (สำหรับ secondary check)")
-            reconciler.load_adj_gl_files(adj_gl_files)
-        else:
-            self.log("ไม่พบไฟล์ ADJ_GL (จะใช้เฉพาะ primary check)")
-
+        
         fi_file = os.path.join(
-            self.paths['base'],
-            self.config.YEAR,
-            'fi',
-            'output',
+            self.paths['base'], 
+            self.config.YEAR, 
+            'fi', 
+            'output', 
             f'pl_revenue_nt_output_{self.config.YEAR}{self.config.RECONCILE_FI_MONTH}.csv'
         )
-
+        
         trn_file = os.path.join(
-            self.paths['output'],
+            self.paths['output'], 
             self.config.OUTPUT_CONCAT_FILE
         )
-
+        
         self.log(f"ไฟล์ FI: {os.path.basename(fi_file)}")
         self.log(f"ไฟล์ TRN: {os.path.basename(trn_file)}")
-
+        
         try:
             result = reconciler.reconcile_revenue(
                 fi_file_path=fi_file,
                 trn_file_path=trn_file,
                 tolerance=self.config.RECONCILE_TOLERANCE
             )
-
+            
             self.log("=" * 80)
-            if result.get('warning'):
-                self.log("⚠️  Reconciliation พบความแตกต่าง (WARNING) — ดำเนินการต่อ", "WARNING")
-            else:
-                self.log("✓ Reconciliation สำเร็จ!", "SUCCESS")
+            self.log("✓ Reconciliation สำเร็จ!", "SUCCESS")
             self.log("=" * 80)
             return result
-
+            
+        except ReconciliationError as e:
+            self.log("=" * 80)
+            self.log("❌ Reconciliation ล้มเหลว - หยุดการทำงาน", "ERROR")
+            self.log("=" * 80)
+            # Re-raise แต่ใช้ raise from None เพื่อลด traceback
+            raise ReconciliationError(str(e), e.reconcile_results) from None
+        
         except FileNotFoundError as e:
-            self.log(f"⚠️  ไม่พบไฟล์สำหรับ Reconciliation: {e}", "WARNING")
+            self.log(f"❌ ไม่พบไฟล์: {e}", "ERROR")
             self.log("💡 กรุณาตรวจสอบ:")
             self.log(f"   1. ไฟล์ FI อยู่ที่: {fi_file}")
             self.log(f"   2. RECONCILE_FI_MONTH = '{self.config.RECONCILE_FI_MONTH}' ถูกต้องหรือไม่")
-            self.log("⚠️  ข้ามการ Reconciliation — ดำเนินการต่อ", "WARNING")
-            return None
     
     def step1_concat_revenue_files(self):
         """
@@ -1084,268 +1064,6 @@ class RevenueETL:
         self.log(f"Grand Total Before (NT1 Original): {grand_total_before:,.2f}")
         self.log(f"Grand Total After (NT1 Filtered + ADJ):  {grand_total_after:,.2f}")
 
-        # ========================================================
-        # ตรวจสอบยอด GL เทียบ FI (ไม่รวม "ผลตอบแทนทางการเงินและรายได้อื่น")
-        # ถ้าไม่ตรง → หยุด pipeline
-        # ========================================================
-        self.log("\n" + "=" * 80)
-        self.log("STEP 4 VALIDATION: ตรวจสอบยอด GL เทียบ FI (Core GL)")
-        self.log("=" * 80)
-
-        fi_file = os.path.join(
-            self.paths['base'],
-            self.config.YEAR,
-            'fi',
-            'output',
-            f'pl_revenue_nt_output_{self.config.YEAR}{self.config.RECONCILE_FI_MONTH}.csv'
-        )
-
-        if not os.path.exists(fi_file):
-            self.log(f"⚠️  ไม่พบไฟล์ FI: {os.path.basename(fi_file)} — ข้ามการตรวจสอบ", "WARNING")
-        else:
-            df_fi_val = pd.read_csv(fi_file)
-            df_fi_val['GL_CODE'] = df_fi_val['GL_CODE'].astype(str).str.strip()
-
-            # หา GL codes ที่อยู่ในกลุ่ม "ผลตอบแทนทางการเงินและรายได้อื่น"
-            exclude_gl_group_name = 'ผลตอบแทนทางการเงินและรายได้อื่น'
-            excluded_gl_set = set(
-                df_master_gl[df_master_gl['GL_GROUP'] == exclude_gl_group_name]['GL_CODE_NT1']
-                .astype(str).str.strip().tolist()
-            ) - {'NT', 'NT2', 'nan', ''}
-
-            # หา GL codes ที่อยู่ใน Master GL (core = ไม่รวมผลตอบแทนฯ)
-            all_master_gl = set(
-                df_master_gl['GL_CODE_NT1'].astype(str).str.strip().tolist()
-            ) - {'NT', 'NT2', 'nan', ''}
-            core_gl_set = all_master_gl - excluded_gl_set
-
-            self.log(f"GL ใน Master ทั้งหมด: {len(all_master_gl)} รหัส")
-            self.log(f"GL ในกลุ่ม '{exclude_gl_group_name}': {len(excluded_gl_set)} รหัส (ไม่รวมในการตรวจ)")
-            self.log(f"Core GL สำหรับตรวจ: {len(core_gl_set)} รหัส")
-
-            # กรอง FI และ df_output — เอาเฉพาะ Core GLs (ที่อยู่ใน Master GL)
-            df_fi_core = df_fi_val[df_fi_val['GL_CODE'].isin(core_gl_set)].copy()
-            df_output_core = df_output[df_output['GL_CODE'].astype(str).isin(core_gl_set)].copy()
-
-            fi_month = int(self.config.RECONCILE_FI_MONTH)
-            tolerance = getattr(self.config, 'RECONCILE_TOLERANCE', 0.01)
-
-            # --- [1] Monthly ---
-            self.log(f"\n[1] เทียบยอดรายเดือน (เดือน {fi_month:02d}) - Core GLs")
-            df_trn_m = df_output_core[df_output_core['MONTH'].astype(int) == fi_month] \
-                .groupby('GL_CODE')['REVENUE_VALUE'].sum().reset_index()
-            df_trn_m.columns = ['GL_CODE', 'TRN_VALUE']
-
-            df_fi_m = df_fi_core[['GL_CODE', 'REVENUE_VALUE']].copy()
-            df_fi_m.columns = ['GL_CODE', 'FI_VALUE']
-
-            merged_m = pd.merge(df_fi_m, df_trn_m, on='GL_CODE', how='outer').fillna(0)
-            merged_m['DIFF'] = (merged_m['FI_VALUE'] - merged_m['TRN_VALUE']).round(2)
-            errors_m = merged_m[merged_m['DIFF'].abs() > tolerance]
-            monthly_ok = len(errors_m) == 0
-
-            if monthly_ok:
-                self.log(f"  ✅ Monthly: ตรงทุก GL ({len(merged_m)} GL codes)")
-            else:
-                self.log(f"  ❌ Monthly: พบ {len(errors_m)} GL ไม่ตรง (จาก {len(merged_m)} GL codes)")
-                for _, row in errors_m.sort_values('DIFF', key=abs, ascending=False).head(10).iterrows():
-                    self.log(f"    GL {row['GL_CODE']}: FI={row['FI_VALUE']:,.2f} TRN={row['TRN_VALUE']:,.2f} Diff={row['DIFF']:,.2f}")
-
-            # --- [2] YTD ---
-            self.log(f"\n[2] เทียบยอดสะสม (YTD) - Core GLs")
-            df_trn_y = df_output_core.groupby('GL_CODE')['REVENUE_VALUE'].sum().reset_index()
-            df_trn_y.columns = ['GL_CODE', 'TRN_VALUE']
-
-            df_fi_y = df_fi_core[['GL_CODE', 'REVENUE_VALUE_YTD']].copy()
-            df_fi_y.columns = ['GL_CODE', 'FI_VALUE']
-
-            merged_y = pd.merge(df_fi_y, df_trn_y, on='GL_CODE', how='outer').fillna(0)
-            merged_y['DIFF'] = (merged_y['FI_VALUE'] - merged_y['TRN_VALUE']).round(2)
-            errors_y = merged_y[merged_y['DIFF'].abs() > tolerance]
-            ytd_ok = len(errors_y) == 0
-
-            if ytd_ok:
-                self.log(f"  ✅ YTD: ตรงทุก GL ({len(merged_y)} GL codes)")
-            else:
-                self.log(f"  ❌ YTD: พบ {len(errors_y)} GL ไม่ตรง (จาก {len(merged_y)} GL codes)")
-                for _, row in errors_y.sort_values('DIFF', key=abs, ascending=False).head(10).iterrows():
-                    self.log(f"    GL {row['GL_CODE']}: FI={row['FI_VALUE']:,.2f} TRN={row['TRN_VALUE']:,.2f} Diff={row['DIFF']:,.2f}")
-
-            # สรุปผล Check 1: GL ต่อ GL
-            if monthly_ok and ytd_ok:
-                self.log(f"\n✅ ผ่านการตรวจสอบ GL เทียบ FI (ไม่รวม '{exclude_gl_group_name}')")
-            else:
-                # ========================================================
-                # Check 2: หัก ADJ_GL แล้วเทียบ GL ใหม่
-                # ========================================================
-                self.log(f"\n⚠️  GL ต่อ GL ไม่ผ่าน — ตรวจสอบโดยหัก ADJ_GL")
-
-                # โหลด ADJ_GL files
-                adj_gl_pattern = os.path.join(self.paths["input"], "TRN_REVENUE_ADJ_GL_NT1_*.csv")
-                adj_gl_files = sorted(glob.glob(adj_gl_pattern))
-                df_adj_gl = pd.DataFrame()
-                if adj_gl_files:
-                    for f in adj_gl_files:
-                        try:
-                            df_tmp = pd.read_csv(f, dtype=str)
-                            # Normalize GL column
-                            if 'GL_CODE_NT1' in df_tmp.columns:
-                                df_tmp.rename(columns={'GL_CODE_NT1': 'GL_CODE'}, inplace=True)
-                            if 'GL_CODE' in df_tmp.columns and 'REVENUE_VALUE' in df_tmp.columns:
-                                df_tmp['REVENUE_VALUE'] = pd.to_numeric(df_tmp['REVENUE_VALUE'], errors='coerce').fillna(0)
-                                if 'MONTH' in df_tmp.columns:
-                                    df_tmp['MONTH'] = df_tmp['MONTH'].astype(str).str.strip()
-                                df_adj_gl = pd.concat([df_adj_gl, df_tmp], ignore_index=True)
-                        except Exception:
-                            pass
-
-                adj_check_passed = False
-                if not df_adj_gl.empty:
-                    df_adj_gl['GL_CODE'] = df_adj_gl['GL_CODE'].astype(str).str.strip()
-                    df_adj_gl_core = df_adj_gl[df_adj_gl['GL_CODE'].isin(core_gl_set)]
-
-                    # Monthly: หัก ADJ_GL จาก TRN
-                    if not monthly_ok:
-                        adj_m = df_adj_gl_core[df_adj_gl_core['MONTH'].astype(int) == fi_month] \
-                            .groupby('GL_CODE')['REVENUE_VALUE'].sum().reset_index()
-                        adj_m.columns = ['GL_CODE', 'ADJ_VALUE']
-                        merged_m2 = pd.merge(merged_m, adj_m, on='GL_CODE', how='left').fillna(0)
-                        merged_m2['TRN_BEFORE_ADJ'] = merged_m2['TRN_VALUE'] - merged_m2['ADJ_VALUE']
-                        merged_m2['DIFF2'] = (merged_m2['FI_VALUE'] - merged_m2['TRN_BEFORE_ADJ']).round(2)
-                        errors_m2 = merged_m2[merged_m2['DIFF2'].abs() > tolerance]
-                        monthly_ok = len(errors_m2) == 0
-                        if monthly_ok:
-                            self.log(f"  ✅ Monthly (หัก ADJ_GL): ตรงทุก GL")
-                        else:
-                            self.log(f"  ❌ Monthly (หัก ADJ_GL): ยังพบ {len(errors_m2)} GL ไม่ตรง")
-
-                    if not ytd_ok:
-                        adj_y = df_adj_gl_core.groupby('GL_CODE')['REVENUE_VALUE'].sum().reset_index()
-                        adj_y.columns = ['GL_CODE', 'ADJ_VALUE']
-                        merged_y2 = pd.merge(merged_y, adj_y, on='GL_CODE', how='left').fillna(0)
-                        merged_y2['TRN_BEFORE_ADJ'] = merged_y2['TRN_VALUE'] - merged_y2['ADJ_VALUE']
-                        merged_y2['DIFF2'] = (merged_y2['FI_VALUE'] - merged_y2['TRN_BEFORE_ADJ']).round(2)
-                        errors_y2 = merged_y2[merged_y2['DIFF2'].abs() > tolerance]
-                        ytd_ok = len(errors_y2) == 0
-                        if ytd_ok:
-                            self.log(f"  ✅ YTD (หัก ADJ_GL): ตรงทุก GL")
-                        else:
-                            self.log(f"  ❌ YTD (หัก ADJ_GL): ยังพบ {len(errors_y2)} GL ไม่ตรง")
-                else:
-                    self.log(f"  ไม่พบข้อมูล ADJ_GL สำหรับ secondary check")
-
-                if monthly_ok and ytd_ok:
-                    self.log(f"\n✅ ผ่านการตรวจสอบ GL แบบมีเงื่อนไข (หัก ADJ_GL แล้วตรง)")
-                else:
-                    # ========================================================
-                    # Check 3: เทียบยอดสุทธิรวม (net total) Core GLs
-                    # ========================================================
-                    self.log(f"\n⚠️  GL ต่อ GL (หัก ADJ_GL) ยังไม่ผ่าน — ตรวจยอดสุทธิรวม")
-
-                    fi_total_m = df_fi_core['REVENUE_VALUE'].sum()
-                    trn_total_m = df_output_core[df_output_core['MONTH'].astype(int) == fi_month]['REVENUE_VALUE'].sum()
-                    diff_m = round(fi_total_m - trn_total_m, 2)
-
-                    fi_total_y = df_fi_core['REVENUE_VALUE_YTD'].sum()
-                    trn_total_y = df_output_core['REVENUE_VALUE'].sum()
-                    diff_y = round(fi_total_y - trn_total_y, 2)
-
-                    self.log(f"  Monthly Net: FI={fi_total_m:,.2f} TRN={trn_total_m:,.2f} Diff={diff_m:,.2f}")
-                    self.log(f"  YTD Net:     FI={fi_total_y:,.2f} TRN={trn_total_y:,.2f} Diff={diff_y:,.2f}")
-
-                    net_monthly_ok = abs(diff_m) <= tolerance
-                    net_ytd_ok = abs(diff_y) <= tolerance
-
-                    if net_monthly_ok and net_ytd_ok:
-                        self.log(f"\n✅ ยอดสุทธิรวมตรงกัน — ผ่านแบบมีเงื่อนไข (GL ต่อ GL ไม่ตรง แต่ยอดรวมตรง)")
-                        self.log(f"  💡 รายงานจะออกในมิติ Product ไม่ใช่ GL — ไปสร้างรายงานต่อ")
-                    else:
-                        # ========================================================
-                        # Check 4: ตรวจกับงบการเงิน (Financial Statement Excel)
-                        # ========================================================
-                        self.log(f"\n⚠️  ยอดสุทธิ FI vs TRN ไม่ตรง — ตรวจต่อกับงบการเงิน")
-
-                        fi_stmt_passed = False
-                        fi_stmt_file_cfg = getattr(self.config, 'FI_STATEMENT_FILE', None)
-                        fi_stmt_dir = getattr(self.config, 'FI_STATEMENT_DIR', None)
-
-                        # Primary: ใช้ fi_statement_file จาก config (explicit path)
-                        fi_stmt_file = None
-                        if fi_stmt_file_cfg and os.path.isfile(fi_stmt_file_cfg):
-                            fi_stmt_file = fi_stmt_file_cfg
-                            self.log(f"  พบงบการเงิน (config): {os.path.basename(fi_stmt_file)}")
-                        elif fi_stmt_dir and os.path.isdir(fi_stmt_dir):
-                            # Fallback: ค้นหาไฟล์งบการเงินจาก directory
-                            self.log(f"  ⚠️  fi_statement_file ไม่พบ — fallback ค้นหาจาก {fi_stmt_dir}")
-                            fi_stmt_files = sorted(glob.glob(os.path.join(fi_stmt_dir, "งบการเงิน*เอกสารแนบ*.xlsx")))
-                            if not fi_stmt_files:
-                                fi_stmt_files = sorted(glob.glob(os.path.join(fi_stmt_dir, "งบกำไรขาดทุน*สะสม*เอกสารแนบ*.xlsx")))
-                            if fi_stmt_files:
-                                fi_stmt_file = fi_stmt_files[-1]
-                                self.log(f"  พบงบการเงิน (fallback): {os.path.basename(fi_stmt_file)}")
-
-                        if fi_stmt_file:
-                            try:
-                                xls = pd.ExcelFile(fi_stmt_file)
-                                pl_sheet = None
-                                for s in xls.sheet_names:
-                                    if 'PLสะสม' in s:
-                                        pl_sheet = s
-                                        break
-
-                                if pl_sheet:
-                                    df_pl = pd.read_excel(fi_stmt_file, sheet_name=pl_sheet, header=None)
-                                    self.log(f"  Sheet: {pl_sheet}")
-
-                                    # Parse: col1=label, col2=จำนวนเงิน (หลังปรับปรุง)
-                                    total_revenue_stmt = None
-                                    other_revenue_stmt = None
-
-                                    for idx, row in df_pl.iterrows():
-                                        label = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ''
-                                        val = row.iloc[2] if len(row) > 2 and pd.notna(row.iloc[2]) else None
-
-                                        if 'รวมรายได้' in label and total_revenue_stmt is None:
-                                            total_revenue_stmt = float(val) if val else None
-                                        if label == 'รายได้อื่น':
-                                            other_revenue_stmt = float(val) if val else None
-
-                                    if total_revenue_stmt is not None and other_revenue_stmt is not None:
-                                        service_revenue_stmt = round(total_revenue_stmt - other_revenue_stmt, 2)
-                                        self.log(f"  งบการเงิน (หลังปรับปรุง):")
-                                        self.log(f"    รวมรายได้: {total_revenue_stmt:,.2f}")
-                                        self.log(f"    รายได้อื่น: {other_revenue_stmt:,.2f}")
-                                        self.log(f"    รายได้จากการให้บริการ: {service_revenue_stmt:,.2f}")
-
-                                        # เทียบกับ TRN core YTD
-                                        diff_stmt = round(service_revenue_stmt - trn_total_y, 2)
-                                        self.log(f"    TRN (Core GLs): {trn_total_y:,.2f}")
-                                        self.log(f"    Diff: {diff_stmt:,.2f}")
-
-                                        if abs(diff_stmt) <= tolerance:
-                                            fi_stmt_passed = True
-                                            self.log(f"\n✅ ตรงกับงบการเงิน — ผ่านแบบมีเงื่อนไข")
-                                            self.log(f"  💡 FI file อาจยังไม่ update — แต่ TRN ตรงกับงบการเงินแล้ว")
-                                        else:
-                                            self.log(f"\n❌ ไม่ตรงกับงบการเงิน (diff={diff_stmt:,.2f})")
-                                    else:
-                                        self.log(f"  ⚠️  ไม่พบข้อมูล 'รวมรายได้' หรือ 'รายได้อื่น' ในงบการเงิน")
-                                else:
-                                    self.log(f"  ⚠️  ไม่พบ sheet 'PLสะสม' ในงบการเงิน")
-                            except Exception as e:
-                                self.log(f"  ⚠️  อ่านงบการเงินไม่สำเร็จ: {e}")
-                        else:
-                            self.log(f"  ⚠️  ไม่พบไฟล์งบการเงิน — ตรวจสอบ fi_statement_file และ fi_statement_dir ใน config")
-
-                        if not fi_stmt_passed:
-                            self.log(f"\n❌ ไม่ผ่านการตรวจสอบทุกวิธี — หยุดการทำงาน", "ERROR")
-                            self.log(f"  FI vs TRN Monthly Diff: {diff_m:,.2f}")
-                            self.log(f"  FI vs TRN YTD Diff: {diff_y:,.2f}")
-                            self.log("=" * 80)
-                            self.log("❌ Step 4 GL Validation Failed — Pipeline หยุดทำงาน", "ERROR")
-                            self.log("=" * 80)
-                            return None
-
         # บันทึกไฟล์สุดท้าย (ข้อมูลดิบที่รวม ADJ แล้ว)
         output_file = os.path.join(self.paths["final_output"], self.config.OUTPUT_FINAL_REPORT_FILE)
         df_output.to_csv(output_file, index=False)
@@ -1859,19 +1577,21 @@ class RevenueETL:
             df = self.step1_concat_revenue_files()
 
             # ============================================================
-            # Step 0: Reconciliation (หลัง step1, ก่อน step2)
-            # WARNING mode: ไม่หยุด pipeline แม้พบความแตกต่าง
+            # Step 0: Reconciliation (หลัง step1, ก่อน step2) <<< เพิ่มส่วนนี้
             # ============================================================
-            self.step0_reconcile_revenue()
+            try:
+                self.step0_reconcile_revenue()
+            except ReconciliationError as e:
+                # แสดง error message แต่ไม่ print traceback
+                self.log("\n❌ ETL Pipeline หยุดการทำงาน: Reconciliation Failed", "ERROR")
+                self.log("💡 กรุณาตรวจสอบ log file สำหรับรายละเอียด", "INFO")
+                # Return None แทน raise เพื่อลด traceback ซ้ำซ้อน
+                return None, {}
 
             df = self.step2_mapping_cost_center(df)
             df = self.step3_mapping_product(df)
             df_final = self.step4_create_final_report(df)
-
-            if df_final is None:
-                self.log("Pipeline หยุดทำงานจาก Step 4 Validation")
-                return None, None
-
+            
             # Step 5: Anomaly Detection (ตอนนี้จะรันบนข้อมูล NT1 + ADJ)
             self.log("\n" + "=" * 80)
             self.log("STEP 5: Anomaly Detection")
@@ -2554,6 +2274,250 @@ class RevenueETL:
         print("\n" + "=" * 80)
         self.logger.info("เพิ่ม Anomaly Detection Report...")
         print("=" * 80)
+            total_nt1 = df_result[df_result['REVENUE_GROUP_TYPE'] != 'ADJ']['AMOUNT'].sum()
+            total_adj = df_result[df_result['REVENUE_GROUP_TYPE'] == 'ADJ']['AMOUNT'].sum()
+            total_all = total_nt1 + total_adj
+
+            # คำนวณยอดรวมจาก Excel Report
+            service_revenue_row = report_asc[report_asc['กลุ่มธุรกิจ'] == 'รวมรายได้จากการให้บริการ']
+            if not service_revenue_row.empty:
+                service_revenue_total = service_revenue_row['ผลรวม'].values[0]
+            else:
+                service_revenue_total = 0
+
+            adj_total_ytd = df_adj_ytd['REVENUE_VALUE'].sum() if df_adj_ytd is not None and not df_adj_ytd.empty else 0
+            excel_total = service_revenue_total + adj_total_ytd
+
+            # คำนวณส่วนต่าง
+            diff_service = total_nt1 - service_revenue_total  # ส่วนต่างของรายได้บริการ
+            diff_all = total_all - excel_total  # ส่วนต่างรวม
+
+            # ========================================================================================
+            # SECTION A: ข้อมูลหลังประมวลผล ETL (สำหรับสร้าง Excel)
+            # ========================================================================================
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': 'A. ข้อมูลหลังประมวลผล ETL',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': 'หลัง Filter รายได้อื่น + Mapping'
+            })
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': '   หมายเหตุ:',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': 'ETL ตัดรายได้อื่นออกจาก NT1 แล้วใช้ ADJ แทน'
+            })
+            reconcile_data.append({
+                'รายการ': '',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': 'A1. รายได้บริการ (NT1 หลัง Filter)',
+                'จำนวนเงิน': total_nt1,
+                'หมายเหตุ': 'ไม่รวมรายได้อื่น + ผลตอบแทนทางการเงิน'
+            })
+            reconcile_data.append({
+                'รายการ': 'A2. รายได้อื่น (ADJ)',
+                'จำนวนเงิน': total_adj,
+                'หมายเหตุ': 'ผลตอบแทนทางการเงิน + รายได้อื่น (แทนที่ NT1)'
+            })
+            reconcile_data.append({
+                'รายการ': 'A3. รวมทั้งหมด (A1+A2)',
+                'จำนวนเงิน': total_all,
+                'หมายเหตุ': '✅ ยอดที่ใช้สร้าง Excel Report'
+            })
+            reconcile_data.append({
+                'รายการ': '',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+
+            # ========================================================================================
+            # SECTION B: รายงาน Excel
+            # ========================================================================================
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': 'B. รายงาน Excel',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': 'B1. รายได้จากการให้บริการ',
+                'จำนวนเงิน': service_revenue_total,
+                'หมายเหตุ': 'จากรายงาน Excel (ไม่รวมรายได้อื่น)'
+            })
+            reconcile_data.append({
+                'รายการ': 'B2. รายได้อื่น (YTD)',
+                'จำนวนเงิน': adj_total_ytd,
+                'หมายเหตุ': 'จากไฟล์ ADJ YTD (คำนวณแยก)'
+            })
+            reconcile_data.append({
+                'รายการ': 'B3. รวมทั้งหมด (B1+B2)',
+                'จำนวนเงิน': excel_total,
+                'หมายเหตุ': 'ยอดรวม Excel Report'
+            })
+            reconcile_data.append({
+                'รายการ': '',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+
+            # ========================================================================================
+            # SECTION C: การกระทบยอด
+            # ========================================================================================
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': 'C. การกระทบยอด',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': 'C1. ส่วนต่าง: รายได้บริการ (A1 - B1)',
+                'จำนวนเงิน': diff_service,
+                'หมายเหตุ': '⚠️ ควรเป็น 0' if abs(diff_service) > 1 else '✅ ตรงกัน'
+            })
+            reconcile_data.append({
+                'รายการ': 'C2. ส่วนต่าง: รวมทั้งหมด (A3 - B3)',
+                'จำนวนเงิน': diff_all,
+                'หมายเหตุ': '⚠️ ควรเป็น 0' if abs(diff_all) > 1 else '✅ ตรงกัน'
+            })
+
+            # ========================================================================================
+            # SECTION D: รายการที่ Mapping ไม่เจอ (ถ้ามี)
+            # ========================================================================================
+            error_file = os.path.join(self.paths["final_output"], self.config.ERROR_PRODUCT_FILE)
+            if os.path.exists(error_file):
+                df_error = pd.read_csv(error_file)
+                if 'REVENUE_VALUE' in df_error.columns and len(df_error) > 0:
+                    total_missing = df_error['REVENUE_VALUE'].sum()
+                    missing_records = len(df_error)
+
+                    reconcile_data.append({
+                        'รายการ': '',
+                        'จำนวนเงิน': None,
+                        'หมายเหตุ': ''
+                    })
+                    reconcile_data.append({
+                        'รายการ': '═══════════════════════════════════════════════════════',
+                        'จำนวนเงิน': None,
+                        'หมายเหตุ': ''
+                    })
+                    reconcile_data.append({
+                        'รายการ': 'D. รายการที่ Mapping ไม่เจอ',
+                        'จำนวนเงิน': None,
+                        'หมายเหตุ': ''
+                    })
+                    reconcile_data.append({
+                        'รายการ': '═══════════════════════════════════════════════════════',
+                        'จำนวนเงิน': None,
+                        'หมายเหตุ': ''
+                    })
+                    reconcile_data.append({
+                        'รายการ': 'D1. ยอดเงินที่หายไป',
+                        'จำนวนเงิน': total_missing,
+                        'หมายเหตุ': f'❌ {missing_records:,} รายการ'
+                    })
+                    reconcile_data.append({
+                        'รายการ': 'D2. สาเหตุ',
+                        'จำนวนเงิน': None,
+                        'หมายเหตุ': 'Master Product ไม่มีรายการนี้'
+                    })
+                    reconcile_data.append({
+                        'รายการ': 'D3. แนะนำ',
+                        'จำนวนเงิน': None,
+                        'หมายเหตุ': f'อัปเดต Master Product (ดูรายละเอียดใน error_product.csv)'
+                    })
+
+            # ========================================================================================
+            # SECTION E: สรุปขั้นตอนการกระทบยอด
+            # ========================================================================================
+            reconcile_data.append({
+                'รายการ': '',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': 'E. ขั้นตอนการกระทบยอดทั้งหมด',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': '═══════════════════════════════════════════════════════',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': ''
+            })
+            reconcile_data.append({
+                'รายการ': '1. ETL Data (ทั้งหมด) ←→ FI Data',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': '✅ กระทบยอดก่อน ETL Filter (ใน Reconciliation Module)'
+            })
+            reconcile_data.append({
+                'รายการ': '2. ETL Data (หลัง Filter+ADJ) ←→ Excel Report',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': '✅ กระทบยอดหลัง ETL (ใน Sheet นี้: C1, C2)'
+            })
+            reconcile_data.append({
+                'รายการ': '3. ตรวจสอบ Mapping Error',
+                'จำนวนเงิน': None,
+                'หมายเหตุ': '✅ แจ้งเตือนถ้ามีรายการหายไป (Section D)'
+            })
+
+            df_reconcile = pd.DataFrame(reconcile_data)
+            return df_reconcile
+
+        # สร้าง reconciliation sheet
+        df_reconcile = create_reconciliation_sheet(df_result, report_asc, df_adj_ytd)
+
+        # บันทึกเป็น Excel
+        try:
+            with pd.ExcelWriter(excel_output_file, engine='openpyxl') as writer:
+                report_asc.to_excel(writer, sheet_name='เรียงเดือนน้อย-มาก', index=False)
+                report_desc.to_excel(writer, sheet_name='เรียงเดือนมาก-น้อย', index=False)
+                df_reconcile.to_excel(writer, sheet_name='Reconciliation', index=False)
+            self.logger.success(f"สร้างรายงานเรียบร้อยแล้ว: {excel_output_file}")
+        except Exception as e:
+            self.logger.error(f"❌ ไม่สามารถบันทึกไฟล์ Excel ได้ (อาจจะเปิดค้างอยู่): {e}")
+            raise
+
+        # Format Excel
+        format_excel(excel_output_file, anomaly_map=historical_anomalies)
+
+        # เพิ่ม Anomaly Detection Sheets
+        print("\n" + "=" * 80)
+        self.logger.info("เพิ่ม Anomaly Detection Report...")
+        print("=" * 80)
 
         try:
             self.create_anomaly_report_sheets(anomaly_results, excel_output_file)
@@ -2606,27 +2570,14 @@ class RevenueETL:
 # ============================================================================
 if __name__ == "__main__":
     from datetime import datetime
-    from config_manager import ConfigManager
 
     print("="*80)
     print("Revenue ETL System - Standalone Execution")
     print("="*80)
 
-    # ใช้ ConfigManager เพื่อโหลด config.json (รองรับ template expansion)
-    config_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(config_dir, "config.json")
-    cm = ConfigManager(config_path)
-    etl_config = cm.get_etl_config()
-    etl_paths = etl_config.pop('paths')
-
     # สร้าง ETL instance และรัน Pipeline
-    etl = RevenueETL(config=etl_config, paths=etl_paths)
+    etl = RevenueETL()
     df_result, anomaly_results = etl.run()
-
-    if df_result is None:
-        print("❌ ETL Pipeline failed.")
-        print("💡 Please check the log files for details.")
-        exit(1)
 
     # สร้าง Excel Report
     excel_file = etl.create_excel_report(df_result, anomaly_results)

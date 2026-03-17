@@ -57,6 +57,11 @@ class SARIMAXModel(BaseForecastModel):
         df_prep = self.prepare_data(df, date_column, value_column)
         self.df_prep = df_prep
 
+        # Check minimum data requirement
+        min_required = max(sum(self.order), sum(self.seasonal_order[:3])) + self.seasonal_order[3]
+        if len(df_prep) < max(min_required, 10):
+            raise ValueError(f"Insufficient data for SARIMAX: need at least {max(min_required, 10)} periods, got {len(df_prep)}")
+
         # If auto_arima enabled, find best parameters
         if self.auto_arima:
             self.order, self.seasonal_order = self._auto_arima(
