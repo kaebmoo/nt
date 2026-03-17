@@ -1,4 +1,4 @@
-# 📦 Revenue ETL System v2.1 - Setup Guide
+# Revenue ETL System v2.2 - Setup Guide
 
 ## คู่มือการติดตั้งและการตั้งค่าอย่างละเอียด
 
@@ -498,11 +498,15 @@ Final:  {base_path}/all/revenue/2025/
 "tolerance": 0.01
 ```
 
-**Reconciliation Process:**
-1. เปรียบเทียบ FI (Monthly) vs TRN (Monthly)
-2. เปรียบเทียบ FI (YTD) vs TRN (YTD)
-3. ตรวจสอบแต่ละ GL_CODE
-4. บันทึก errors ใน `reconcile_logs/`
+**Reconciliation Process (Step 0):**
+1. **Primary Check** — เทียบ **ทุก GL** ราย GL (FI vs TRN) ทั้ง Monthly และ YTD
+2. ถ้าตรงทั้งหมด → PASSED
+3. ถ้าไม่ตรง → **Secondary Check** — หัก ADJ_GL แล้วเทียบใหม่
+4. ถ้า secondary ตรง → WARNING → ไปต่อ
+5. บันทึก errors ใน `reconcile_logs/`
+
+> **หมายเหตุ (v2.2):** Step 0 เทียบ **ทุก GL** (รวม ผลตอบแทนทางการเงินฯ)
+> ส่วน Step 4 จะเทียบเฉพาะ **Core GLs** (ยกเว้น ผลตอบแทนทางการเงินฯ)
 
 **Output:**
 - `reconcile_summary_{timestamp}.txt` - สรุปผล
@@ -657,18 +661,53 @@ REVENUE_NT_REPORT_2025.xlsx (with highlighting)
   "required_columns": [
     "YEAR", "MONTH", "CUSTOMER_GROUP_KEY", "PRODUCT_KEY",
     "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER", "REVENUE_VALUE"
-  ]
+  ],
+  "fi_statement_file": "/path/to/งบการเงิน ณ วันที่ 31 ธันวาคม 2568 ... เอกสารแนบ 1.xlsx",
+  "fi_statement_dir": "/path/to/fi"
 }
 ```
 
 **คำอธิบาย:**
 
-**`grand_total_diff_threshold`:**
-- ความคลาดเคลื่อนสูงสุดที่ยอมรับได้สำหรับยอดรวมทั้งหมด
+**`grand_total_diff_threshold`** (float):
+- ความคลาดเคลื่อนสูงสุดที่ยอมรับได้สำหรับยอดรวมทั้งหมด (หน่วย: บาท)
+- ใช้เป็น tolerance ในการเทียบ Step 4 GL Validation ทุก check
 
-**`required_columns`:**
+**`required_columns`** (array):
 - คอลัมน์ที่ต้องมีในข้อมูลขั้นสุดท้าย
 - ถ้าขาดคอลัมน์ใดๆ → จะแสดง error
+
+**`fi_statement_file`** (string, path) — **v2.2 ใหม่:**
+- path เต็มของไฟล์งบการเงิน Excel สำหรับ Step 4 Check 4
+- **Primary source** — ระบบจะใช้ไฟล์นี้ก่อนเป็นอันดับแรก
+- ข้อดี: ระบุตรง, เปลี่ยนง่าย, ไม่สับสนเมื่อมีหลายไฟล์ใน folder
+- ต้อง update ทุกครั้งที่เปลี่ยนเดือน/ปี
+- ไฟล์ต้องมี sheet ที่มีคำว่า "PLสะสม" อยู่ในชื่อ
+
+**`fi_statement_dir`** (string, path) — **v2.2 ใหม่:**
+- directory ที่เก็บไฟล์งบการเงิน
+- **Fallback** — ใช้เมื่อ `fi_statement_file` ไม่พบไฟล์
+- ค้นหาด้วย glob pattern: `งบการเงิน*เอกสารแนบ*.xlsx`
+- ถ้าไม่เจอ → fallback: `งบกำไรขาดทุน*สะสม*เอกสารแนบ*.xlsx`
+- เลือกไฟล์ล่าสุด (sorted, pick last)
+
+**ลำดับการค้นหาไฟล์งบการเงิน:**
+```
+1. fi_statement_file → ถ้ามีและไฟล์อยู่จริง → ใช้เลย
+2. fi_statement_dir  → ค้นหาด้วย glob → ใช้ไฟล์ล่าสุด
+3. ไม่พบเลย         → แสดง warning, Check 4 ข้าม
+```
+
+**ตัวอย่างการตั้งค่า:**
+```json
+// macOS
+"fi_statement_file": "/Users/seal/Documents/NT/Report/fi/งบการเงิน ณ วันที่ 31 ธันวาคม 2568 (ก่อนตรวจสอบ)  เอกสารแนบ 1.xlsx",
+"fi_statement_dir": "/Users/seal/Documents/NT/Report/fi"
+
+// Windows
+"fi_statement_file": "C:\\Users\\User\\Documents\\NT\\fi\\งบการเงิน ณ วันที่ 31 ธันวาคม 2568.xlsx",
+"fi_statement_dir": "C:\\Users\\User\\Documents\\NT\\fi"
+```
 
 #### 6.9 Anomaly Detection
 
@@ -1395,6 +1434,6 @@ OVERALL STATUS: PASSED
 
 ---
 
-**Version:** 2.1.0
-**Last Updated:** November 2025
+**Version:** 2.2.0
+**Last Updated:** March 2026
 **Developed by:** Revenue ETL Team
