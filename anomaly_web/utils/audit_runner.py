@@ -14,6 +14,7 @@ import traceback
 
 # Import anomaly detection engines
 from .anomaly_engine import CrosstabGenerator, FullAuditEngine
+from .csv_io import read_any
 from .anomaly_reporter import ExcelReporter
 from .crosstab_converter import CrosstabConverter
 
@@ -235,10 +236,7 @@ class AuditRunner:
         else:
             # Direct long format
             print("   Loading Long format data...")
-            if input_file.endswith(('.xlsx', '.xls')):
-                df = pd.read_excel(input_file)
-            else:
-                df = pd.read_csv(input_file)
+            df = read_any(input_file)
         
         return df
     

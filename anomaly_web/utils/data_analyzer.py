@@ -128,8 +128,9 @@ class DataAnalyzer:
         if is_numeric:
             return 'numeric'
 
-        # Try date (but not if it's a KEY/ID/CODE column)
-        if not is_likely_dimension and self._is_date_column(series):
+        # Try date (but not if it's a KEY/ID/CODE column ที่ไม่ได้ขึ้นต้นด้วยคำว่าวันที่)
+        # เช่น TIME_KEY_DATE ติด pattern '_KEY' แต่เป็นวันที่จริง (01JAN2026)
+        if (not is_likely_dimension or is_date_keyword) and self._is_date_column(series):
             return 'date'
 
         # Check if ID (mostly unique) - for text-based IDs

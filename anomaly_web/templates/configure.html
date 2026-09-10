@@ -33,7 +33,20 @@
                     </div>
                     <div class="card-body">
                         <div class="row">
-                            <div class="col-md-4 mb-3">
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">DATE Column</label>
+                                <select class="form-select" name="date_column">
+                                    <option value="">-- ไม่ใช้ --</option>
+                                    {% for col in analysis.columns.keys() %}
+                                    <option value="{{ col }}"
+                                            {% if col == analysis.recommendations.date_column %}selected{% endif %}>
+                                        {{ col }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">ใช้แทน YEAR+MONTH ได้ (เช่น TIME_KEY_DATE = 01JAN2026)</div>
+                            </div>
+                            <div class="col-md-3 mb-3">
                                 <label class="form-label">YEAR Column</label>
                                 <select class="form-select" name="col_year">
                                     <option value="">-- เลือก --</option>
@@ -45,7 +58,7 @@
                                     {% endfor %}
                                 </select>
                             </div>
-                            <div class="col-md-4 mb-3">
+                            <div class="col-md-3 mb-3">
                                 <label class="form-label">MONTH Column</label>
                                 <select class="form-select" name="col_month">
                                     <option value="">-- เลือก --</option>
@@ -57,7 +70,7 @@
                                     {% endfor %}
                                 </select>
                             </div>
-                            <div class="col-md-4 mb-3">
+                            <div class="col-md-3 mb-3">
                                 <label class="form-label">Value Column *</label>
                                 <select class="form-select" name="target_col" required>
                                     <option value="">-- เลือก --</option>
@@ -295,6 +308,9 @@ $(document).ready(function() {
     }
     if ($('select[name="crosstab_dimensions"]').length) {
         new TomSelect('select[name="crosstab_dimensions"]', tsSettings);
+    }
+    if ($('select[name="date_column"]').length) {
+        new TomSelect('select[name="date_column"]', singleSelectSettings);
     }
     if ($('select[name="col_year"]').length) {
         new TomSelect('select[name="col_year"]', singleSelectSettings);

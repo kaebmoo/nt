@@ -26,8 +26,13 @@
                                 <i class="bi bi-file-earmark-arrow-up"></i> เลือกไฟล์
                             </label>
                             <input type="file" class="form-control form-control-lg" id="fileInput" name="file" 
-                                   accept=".csv,.xlsx,.xls" required>
-                            <div class="form-text">รองรับ: CSV, XLSX, XLS</div>
+                                   accept=".csv,.xlsx,.xls" multiple required>
+                            <div class="form-text">
+                                รองรับ: CSV, XLSX, XLS &mdash;
+                                เลือกได้หลายไฟล์พร้อมกัน (กด Shift/Cmd ค้าง)
+                                ถ้าเป็น CSV ที่มีหัวคอลัมน์เหมือนกัน ระบบจะรวมเป็นไฟล์เดียวให้อัตโนมัติ
+                            </div>
+                            <div id="fileList" class="form-text text-primary"></div>
                         </div>
 
                         <!-- Input Mode -->
@@ -112,6 +117,11 @@
 {% block extra_js %}
 <script>
 $(document).ready(function() {
+    $('#fileInput').on('change', function() {
+        const n = this.files.length;
+        $('#fileList').text(n > 1 ? `เลือก ${n} ไฟล์ - จะถูกรวมเป็นไฟล์เดียว` : '');
+    });
+
     $('#uploadForm').on('submit', function(e) {
         e.preventDefault();
         

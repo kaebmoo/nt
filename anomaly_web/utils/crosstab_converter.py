@@ -5,6 +5,8 @@ Converts Crosstab/Pivot-Table data into a long format.
 
 import pandas as pd
 
+from .csv_io import read_csv_auto
+
 class CrosstabConverter:
     """
     A class to convert wide-format (crosstab) dataframes to long-format.
@@ -38,7 +40,7 @@ class CrosstabConverter:
         # 1. Read Data
         try:
             if self.input_file.endswith('.csv'):
-                df = pd.read_csv(self.input_file, skiprows=skiprows)
+                df = read_csv_auto(self.input_file, skiprows=skiprows)
             else:
                 df = pd.read_excel(self.input_file, sheet_name=sheet_name, skiprows=skiprows)
         except FileNotFoundError:

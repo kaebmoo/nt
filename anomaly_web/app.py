@@ -8,11 +8,11 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, s
 from werkzeug.utils import secure_filename
 import os
 import json
-import pandas as pd
 from datetime import datetime
 import uuid
 from threading import Thread
 
+from utils.csv_io import read_any
 from utils.file_handler import FileHandler
 from utils.data_analyzer import DataAnalyzer
 from utils.config_manager import ConfigManager
@@ -46,12 +46,9 @@ def upload():
     if request.method == 'GET':
         return render_template('upload.html')
     
-    # Handle file upload
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
+    # Handle file upload (รองรับหลายไฟล์ - ระบบจะ concat ให้อัตโนมัติ)
+    files = [f for f in request.files.getlist('file') if f.filename]
+    if not files:
         return jsonify({'error': 'No file selected'}), 400
 
     # Get metadata
@@ -60,8 +57,8 @@ def upload():
 
     try:
         # Save file with metadata
-        file_info = file_handler.save_upload(
-            file=file,
+        file_info = file_handler.save_uploads(
+            files=files,
             input_mode=input_mode,
             description=description
         )
@@ -90,7 +87,7 @@ def preview(file_id):
             return redirect(url_for('upload'))
         
         # Read data for preview
-        df = pd.read_csv(file_info['filepath'], nrows=100)
+        df = read_any(file_info['filepath'], nrows=100)
         
         # Auto-analyze data
         analysis = data_analyzer.analyze_dataframe(
@@ -133,7 +130,7 @@ def configure(file_id):
         saved_config = config_manager.load_config(file_id)
         
         # Get column analysis
-        df = pd.read_csv(file_info['filepath'], nrows=100)
+        df = read_any(file_info['filepath'], nrows=100)
         analysis = data_analyzer.analyze_dataframe(df, file_info['input_mode'])
         
         # Load config templates

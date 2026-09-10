@@ -109,6 +109,74 @@ class FileHandler:
         
         return file_info
     
+    def save_uploads(self, files, input_mode, description=''):
+        """
+        รวมหลายไฟล์ CSV ที่มี header เดียวกันเป็นไฟล์เดียว แล้วบันทึกเหมือน upload ปกติ
+
+        Returns:
+            dict: ข้อมูลของไฟล์ที่บันทึก (เหมือน save_upload)
+        """
+        files = [f for f in files if f.filename]
+        if len(files) == 1:
+            return self.save_upload(files[0], input_mode, description)
+
+        non_csv = [f.filename for f in files if not f.filename.lower().endswith('.csv')]
+        if non_csv:
+            raise ValueError(f"รวมได้เฉพาะไฟล์ CSV เท่านั้น พบ: {', '.join(non_csv)}")
+
+        file_id = str(uuid.uuid4())
+        base = os.path.splitext(secure_filename(files[0].filename))[0]
+        original_filename = f"{base}_merged{len(files)}.csv"
+        saved_filename = f"{file_id}_{original_filename}"
+        filepath = os.path.join(self.upload_folder, saved_filename)
+
+        # ponytail: ต่อไฟล์ระดับ byte (ตัด header ของไฟล์ที่ 2 เป็นต้นไป)
+        # ไม่ใช้ pandas -> ไม่กิน RAM, ไม่ต้องเดา encoding/delimiter
+        # ไม่เรียงลำดับไฟล์ เพราะ long format จัดกลุ่มด้วย YEAR/MONTH อยู่แล้ว
+        header = None
+        try:
+            with open(filepath, 'wb') as out:
+                for f in files:
+                    first_line = f.stream.readline()
+                    if header is None:
+                        header = first_line
+                        out.write(first_line)
+                    elif first_line.strip() != header.strip():
+                        raise ValueError(
+                            f"หัวคอลัมน์ของ {f.filename} ไม่ตรงกับไฟล์แรก ({files[0].filename})"
+                        )
+                    last = b'\n'
+                    for chunk in iter(lambda: f.stream.read(1 << 20), b''):
+                        out.write(chunk)
+                        last = chunk[-1:]
+                    if last != b'\n':
+                        out.write(b'\n')
+        except Exception:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            raise
+
+        file_size = os.path.getsize(filepath)
+        file_info = {
+            'file_id': file_id,
+            'original_filename': original_filename,
+            'saved_filename': saved_filename,
+            'filepath': filepath,
+            'file_size': file_size,
+            'file_size_mb': round(file_size / (1024 * 1024), 2),
+            'input_mode': input_mode,
+            'description': description,
+            'tags': self._generate_tags(original_filename, input_mode) + ['merged'],
+            'source_files': [f.filename for f in files],
+            'upload_time': datetime.now().isoformat(),
+            'last_accessed': datetime.now().isoformat()
+        }
+
+        self.metadata[file_id] = file_info
+        self._save_metadata()
+
+        return file_info
+
     def update_upload_metadata(self, file_id, description=None, tags=None):
         """
         อัพเดท metadata ของไฟล์ที่ upload
