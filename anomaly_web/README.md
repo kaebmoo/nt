@@ -175,6 +175,26 @@ HR,6001,Salary,100000,105000,103000
 
 - `crosstab_min_history`: จำนวนเดือนขั้นต่ำสำหรับ crosstab (default: 3)
 - `audit_ts_window`: Rolling window สำหรับ time series (default: 6)
+- `iqr_k`: ตัวคูณ IQR สำหรับ Time Series/Crosstab (default: 2.0; ค่าน้อย strict, ค่ามาก relaxed)
+- `min_change_ratio`: % เปลี่ยนแปลงขั้นต่ำก่อนเริ่มจับ anomaly (default: 0.10 = 10%)
+- `constant_change_ratio`: % เปลี่ยนแปลงขั้นต่ำเมื่อประวัติเดิมคงที่/IQR = 0 (default: 0.15 = 15%)
+- `peer_contamination`: สัดส่วน candidate outlier ของ Isolation Forest (default: 0.05 = 5%)
+- `peer_zscore_threshold`: z-score ขั้นต่ำหลังผ่าน Isolation Forest (default: 2.0)
+- `peer_min_group_size`: จำนวนรายการขั้นต่ำต่อ peer group ก่อนวิเคราะห์ (default: 5)
+
+### **PCT_CHANGE คำนวณอย่างไร**
+
+ค่าเปลี่ยนแปลงของ "เดือนล่าสุด" เทียบกับ "ค่าเฉลี่ยของเดือนก่อนหน้า" มี 2 ที่ที่คำนวณต่างกัน:
+
+| | Crosstab Report (`PCT_CHANGE` ในไฟล์) | Time Series Audit (ใช้ภายใน) |
+|---|---|---|
+| สูตร | `(LATEST_VALUE - AVG_HISTORICAL) / AVG_HISTORICAL * 100` | `abs(value - HIST_MEAN) / HIST_MEAN` |
+| ฐานเทียบ | ค่าเฉลี่ยของ **ทุกเดือนก่อนหน้า** (ตัดค่า ≤ 0 และค่าที่ไม่ใช่ตัวเลขทิ้ง) | ค่าเฉลี่ยของ **`audit_ts_window` เดือนก่อนหน้า** (ไม่รวมเดือนปัจจุบัน) |
+| หน่วย | เปอร์เซ็นต์ มีเครื่องหมาย (-20 = ลด 20%) | สัดส่วน ค่าสัมบูรณ์ (0.2 = เปลี่ยน 20%) |
+| ฐานเป็น 0 | ได้ 0 | ได้ 0 |
+| แสดงในรายงาน | ✅ column `PCT_CHANGE` | ❌ ใช้ตัดสินสถานะแล้วทิ้ง เหลือแค่ `COMPARED_WITH` (Avg Past N + Count) |
+
+ทั้งสองแบบใช้เป็นด่านแรกก่อนเช็ค IQR: ถ้าน้อยกว่า `min_change_ratio` → Normal ทันที และถ้าประวัตินิ่ง (IQR = 0) จะเทียบกับ `constant_change_ratio` แทน
 
 ## 🎨 Color Legend
 

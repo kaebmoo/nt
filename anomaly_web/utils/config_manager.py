@@ -9,6 +9,11 @@ import os
 import json
 from datetime import datetime
 
+try:
+    from .anomaly_settings import normalize_anomaly_settings
+except ImportError:
+    from anomaly_settings import normalize_anomaly_settings
+
 class ConfigManager:
     """จัดการ configuration และ templates"""
     
@@ -23,6 +28,8 @@ class ConfigManager:
     def save_config(self, file_id, config_data):
         """บันทึก configuration สำหรับ file_id นั้นๆ"""
         config_path = os.path.join(self.config_folder, f"{file_id}.json")
+        config_data = self.normalize_config(config_data)
+        config_data['file_id'] = file_id
         
         # Add metadata
         config_data['_metadata'] = {
@@ -125,6 +132,8 @@ class ConfigManager:
         if not config.get('audit_peer_group_by') and config.get('crosstab_dimensions'):
             config['audit_peer_group_by'] = config['crosstab_dimensions'].copy()
 
+        config.update(normalize_anomaly_settings(config))
+
         return config
     
     def validate_config(self, config_data):
@@ -187,7 +196,11 @@ class ConfigManager:
         template_path = os.path.join(self.templates_folder, f"{template_name}.json")
         
         # Remove file-specific metadata
-        template_data = {k: v for k, v in config_data.items() if not k.startswith('_')}
+        template_data = {
+            k: v for k, v in config_data.items()
+            if not k.startswith('_') and k != 'file_id'
+        }
+        template_data = self.normalize_config(template_data)
         
         # Add template metadata
         template_data['_template'] = {
@@ -210,7 +223,7 @@ class ConfigManager:
             raise FileNotFoundError(f"Template '{template_name}' not found")
         
         with open(template_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            return self.normalize_config(json.load(f))
     
     def list_templates(self):
         """แสดงรายการ templates ทั้งหมด"""
@@ -284,4 +297,3 @@ class ConfigManager:
         if not template_name:
             raise ValueError("Template name cannot be empty or contain only invalid characters.")
         return template_name
-

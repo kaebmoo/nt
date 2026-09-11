@@ -1,12 +1,19 @@
 import pandas as pd
-import numpy as np
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+try:
+    from .anomaly_engine import detect_iqr_anomaly
+    from .anomaly_settings import normalize_anomaly_settings
+except ImportError:
+    from anomaly_engine import detect_iqr_anomaly
+    from anomaly_settings import normalize_anomaly_settings
+
 class ExcelReporter:
-    def __init__(self, output_file):
+    def __init__(self, output_file, anomaly_settings=None):
         self.writer = pd.ExcelWriter(output_file, engine='openpyxl')
+        self.anomaly_settings = normalize_anomaly_settings(anomaly_settings)
         print(f"[Reporter]: Initialized for file: {output_file}")
         
         # กำหนด Style สีต่างๆ
@@ -34,53 +41,8 @@ class ExcelReporter:
         
         Returns: "Negative_Value" | "High_Spike" | "Low_Spike" | "New_Item" | "Normal"
         """
-        # Case 1: ค่าติดลบ
-        if value < 0:
-            return "Negative_Value"
-        
-        # Case 2: ข้อมูลอดีตไม่พอ
-        history_clean = [h for h in history if h > 0]
-        if len(history_clean) < min_history:
-            return "New_Item" if value > 0 else "Normal"
-        
-        # Case 3: คำนวณ % การเปลี่ยนแปลง
-        avg_historical = np.mean(history_clean)
-        
-        if avg_historical == 0:
-            pct_change = 0
-        else:
-            pct_change = abs((value - avg_historical) / avg_historical)
-        
-        # ถ้าเปลี่ยนน้อยกว่า 10% → Normal
-        if pct_change < 0.10:
-            return "Normal"
-        
-        # Case 4: คำนวณ IQR
-        Q1 = np.percentile(history_clean, 25)
-        Q3 = np.percentile(history_clean, 75)
-        IQR = Q3 - Q1
-        
-        # ถ้า IQR = 0 (ข้อมูลคงที่)
-        if IQR == 0:
-            if pct_change < 0.15:
-                return "Normal"
-            if Q1 == 0 and value > 0:
-                return "High_Spike"
-            if value != Q1:
-                return "Spike_vs_Constant"
-            return "Normal"
-        
-        # Case 5: ใช้ IQR Method
-        k = 2.0  # Sensitivity factor
-        lower_fence = max(0, Q1 - (k * IQR))
-        upper_fence = Q3 + (k * IQR)
-        
-        if value > upper_fence:
-            return "High_Spike"
-        if value < lower_fence:
-            return "Low_Spike"
-        
-        return "Normal"
+        status, _, _ = detect_iqr_anomaly(value, history, min_history, self.anomaly_settings)
+        return "Normal" if status == "Not_Enough_Data" else status
 
     def _build_anomaly_map(self, df_report, date_cols_sorted, min_history=3):
         """
@@ -157,7 +119,7 @@ class ExcelReporter:
 
         print(f"[Reporter]:    ✓ Added Color Legend ({legend_type}) at row {start_row}")
 
-    def add_crosstab_sheet(self, df_report, df_anomaly_log, dimensions, date_col_name, date_cols_sorted):
+    def add_crosstab_sheet(self, df_report, df_anomaly_log, dimensions, date_col_name, date_cols_sorted, min_history=3):
         """เพิ่ม Crosstab Sheet และทาสีตาม anomaly ที่คำนวณจากข้อมูล Crosstab โดยตรง"""
         if df_report.empty: 
             return
@@ -165,7 +127,7 @@ class ExcelReporter:
         print("[Reporter]: Adding Crosstab Sheet with Cell Highlighting...")
         
         # ✅ คำนวณ anomaly สำหรับทุก cell
-        anomaly_map = self._build_anomaly_map(df_report, date_cols_sorted, min_history=3)
+        anomaly_map = self._build_anomaly_map(df_report, date_cols_sorted, min_history=min_history)
         
         # เขียน DataFrame ลง Excel
         sheet_name = 'Crosstab_Report'

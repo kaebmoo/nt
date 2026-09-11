@@ -2,16 +2,65 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-K = 2.0  # Sensitivity parameter for IQR method
+try:
+    from .anomaly_settings import DEFAULT_ANOMALY_SETTINGS, normalize_anomaly_settings
+except ImportError:
+    from anomaly_settings import DEFAULT_ANOMALY_SETTINGS, normalize_anomaly_settings
+
+K = DEFAULT_ANOMALY_SETTINGS["iqr_k"]  # Backward-compatible default
+
+
+def detect_iqr_anomaly(value, history, min_history=3, anomaly_settings=None):
+    settings = normalize_anomaly_settings(anomaly_settings)
+    latest_val = pd.to_numeric(pd.Series([value]), errors='coerce').fillna(0).iloc[0]
+    if latest_val < 0:
+        return "Negative_Value", latest_val, 0
+
+    history_clean = pd.to_numeric(pd.Series(history), errors='coerce').dropna()
+    history_clean = history_clean[history_clean > 0]
+    if len(history_clean) < min_history:
+        return ("New_Item" if latest_val > 0 else "Not_Enough_Data"), latest_val, 0
+
+    avg_historical = history_clean.mean()
+    pct_change = 0 if avg_historical == 0 else abs((latest_val - avg_historical) / avg_historical)
+
+    if pct_change < settings["min_change_ratio"]:
+        return "Normal", latest_val, avg_historical
+
+    Q1, Q3 = history_clean.quantile(0.25), history_clean.quantile(0.75)
+    IQR = Q3 - Q1
+
+    if IQR == 0:
+        if pct_change < settings["constant_change_ratio"]:
+            return "Normal", latest_val, avg_historical
+        if Q1 == 0 and latest_val > 0:
+            return "High_Spike", latest_val, avg_historical
+        if latest_val != Q1:
+            return "Spike_vs_Constant", latest_val, avg_historical
+        return "Normal", latest_val, avg_historical
+
+    k = settings["iqr_k"]
+    lower_fence = max(0, Q1 - (k * IQR))
+    upper_fence = Q3 + (k * IQR)
+
+    if latest_val > upper_fence:
+        return "High_Spike", latest_val, avg_historical
+    if latest_val < lower_fence:
+        return "Low_Spike", latest_val, avg_historical
+
+    return "Normal", latest_val, avg_historical
+
+
 class CrosstabGenerator:
     """Class นี้สร้าง 'Crosstab Report' (สถานะเดือนล่าสุด)"""
-    def __init__(self, df, min_history=3):
+    def __init__(self, df, min_history=3, anomaly_settings=None):
         self.df = df.copy()
         # FIX: Check if dataframe is empty or missing the column before sorting
         if not self.df.empty and '__date_col__' in self.df.columns:
             self.df.sort_values(by='__date_col__', inplace=True)
             
         self.min_history = min_history
+        self.anomaly_settings = normalize_anomaly_settings(anomaly_settings)
         self.date_cols_sorted = []
         print("[Engine]: CrosstabGenerator Initialized.")
 
@@ -39,61 +88,18 @@ class CrosstabGenerator:
 
     def _get_status_helper(self, row_series, min_history):
         """Helper: ตรวจสอบสถานะ 7 แบบ (ปรับปรุงใหม่: ใส่ Threshold กัน Sensitive เกินไป)"""
-        latest_val = row_series.iloc[-1]
-        history = row_series.iloc[:-1]
-        
-        if latest_val < 0: return "Negative_Value", latest_val, 0
-        
-        history_clean = history[history > 0]
-        if len(history_clean) < min_history:
-            return ("New_Item" if latest_val > 0 else "Not_Enough_Data"), latest_val, 0
-        
-        avg_historical = history_clean.mean()
-        
-        # คำนวณ % การเปลี่ยนแปลง
-        if avg_historical == 0: 
-            pct_change = 0
-        else: 
-            pct_change = abs((latest_val - avg_historical) / avg_historical)
-        
-        # ✅ ถ้าเปลี่ยนน้อยกว่า 10% ให้ปล่อยผ่านเป็น Normal เลย
-        if pct_change < 0.10: 
-            return "Normal", latest_val, avg_historical
-        
-        Q1, Q3 = history_clean.quantile(0.25), history_clean.quantile(0.75)
-        IQR = Q3 - Q1
-        
-        # ✅ ปรับ Logic IQR == 0 ให้เช็ค % ก่อน
-        if IQR == 0:
-            # ถ้าเปลี่ยนแปลงน้อยกว่า 15% แม้ว่า IQR = 0 ก็ให้ผ่าน
-            if pct_change < 0.15:
-                return "Normal", latest_val, avg_historical
-            # ถ้าเปลี่ยนมากกว่า 15% ถึงจะเป็น Spike
-            if Q1 == 0 and latest_val > 0: 
-                return "High_Spike", latest_val, avg_historical
-            if latest_val != Q1: 
-                return "Spike_vs_Constant", latest_val, avg_historical
-            return "Normal", latest_val, avg_historical
-        
-        # ✅ เพิ่ม k ให้สูงขึ้นเพื่อลด Sensitivity (จาก 1.5 เป็น 2.0)
-        k = K  # เดิมเป็น 1.5
-        lower_fence = max(0, Q1 - (k * IQR))
-        upper_fence = Q3 + (k * IQR)
-        
-        if latest_val > upper_fence: return "High_Spike", latest_val, avg_historical
-        if latest_val < lower_fence: return "Low_Spike", latest_val, avg_historical
-        
-        return "Normal", latest_val, avg_historical
+        return detect_iqr_anomaly(row_series.iloc[-1], row_series.iloc[:-1], min_history, self.anomaly_settings)
 
 class FullAuditEngine:
     """Class นี้ Audit ข้อมูล 'ทั้งหมด' (Rolling & IsolationForest)"""
-    def __init__(self, df):
+    def __init__(self, df, anomaly_settings=None):
         self.df = df.copy()
         if '__date_col__' in self.df.columns:
             self.df.sort_values(by='__date_col__', inplace=True)
+        self.anomaly_settings = normalize_anomaly_settings(anomaly_settings)
         print("[Engine]: FullAuditEngine Initialized.")
         # ยืม Logic การตรวจจับจาก Crosstab มาใช้
-        self.status_helper = CrosstabGenerator(pd.DataFrame())._get_status_helper
+        self.status_helper = CrosstabGenerator(pd.DataFrame(), anomaly_settings=self.anomaly_settings)._get_status_helper
 
     def audit_time_series_all_months(self, target_col, date_col, dimensions, window=3):
         """
@@ -167,7 +173,7 @@ class FullAuditEngine:
         )
         
         # 4. คำนวณ Fences (IQR Method)
-        k = K  # Sensitivity (1.5 = strict, 2.0 = moderate, 3.0 = relaxed)
+        k = self.anomaly_settings["iqr_k"]  # Sensitivity (1.5 = strict, 2.0 = moderate, 3.0 = relaxed)
         df_calc['UPPER_FENCE'] = df_calc['HIST_Q3'] + (k * df_calc['HIST_IQR'])
         df_calc['LOWER_FENCE'] = (df_calc['HIST_Q1'] - (k * df_calc['HIST_IQR'])).clip(lower=0)
         
@@ -180,11 +186,11 @@ class FullAuditEngine:
             # หมายเหตุ: ใช้ window-1 เพื่อให้ยืดหยุ่นเล็กน้อย
             (df_calc['HIST_COUNT'] < (window - 1)),
             
-            # Case 2: เปลี่ยนแปลงน้อยกว่า 10% -> Normal (Threshold ด่านแรก)
-            (df_calc['PCT_CHANGE'] < 0.10),
+            # Case 2: เปลี่ยนแปลงน้อยกว่า threshold -> Normal
+            (df_calc['PCT_CHANGE'] < self.anomaly_settings["min_change_ratio"]),
             
-            # Case 3: IQR = 0 (ประวัตินิ่งสนิท) แต่เปลี่ยนไม่ถึง 15% -> Normal
-            ((df_calc['HIST_IQR'] == 0) & (df_calc['PCT_CHANGE'] < 0.15)),
+            # Case 3: IQR = 0 (ประวัตินิ่งสนิท) แต่เปลี่ยนไม่ถึง threshold -> Normal
+            ((df_calc['HIST_IQR'] == 0) & (df_calc['PCT_CHANGE'] < self.anomaly_settings["constant_change_ratio"])),
             
             # Case 4: IQR = 0 แต่ Q1=0 แล้วมียอดเด้งขึ้นมา -> High Spike
             ((df_calc['HIST_IQR'] == 0) & (df_calc['HIST_Q1'] == 0) & (df_calc[target_col] > 0)),
@@ -245,6 +251,9 @@ class FullAuditEngine:
         """Isolation Forest Scan"""
         print("[Engine]: Running Full Peer Group (IsolationForest)...")
         results = []
+        peer_min_group_size = self.anomaly_settings["peer_min_group_size"]
+        peer_contamination = self.anomaly_settings["peer_contamination"]
+        peer_zscore_threshold = self.anomaly_settings["peer_zscore_threshold"]
         for d in self.df[date_col].unique():
             period_data = self.df[self.df[date_col] == d].copy()
             if group_dims:
@@ -253,15 +262,15 @@ class FullAuditEngine:
             else: period_data['__GRP_ID__'] = 'ALL'
 
             for grp_id, batch in period_data.groupby('__GRP_ID__'):
-                if len(batch) < 5: continue
+                if len(batch) < peer_min_group_size: continue
                 X = batch[target_col].values.reshape(-1, 1)
-                clf = IsolationForest(contamination=0.05, random_state=42)
+                clf = IsolationForest(contamination=peer_contamination, random_state=42)
                 preds = clf.fit_predict(X)
                 mean_val, std_val = np.mean(batch[target_col]), np.std(batch[target_col])
                 
                 for _, row in batch[preds == -1].iterrows():
                     z = (row[target_col] - mean_val) / std_val if std_val > 0 else 0
-                    if abs(z) > 2.0:
+                    if abs(z) > peer_zscore_threshold:
                         row_res = row.to_dict()
                         row_res['ANOMALY_TYPE'] = 'Peer_Group_ISO'
                         row_res['ISSUE_DESC'] = "High Outlier (vs Peers)" if z > 0 else "Low Outlier (vs Peers)"

@@ -194,14 +194,54 @@
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Time Series Window</label>
                                     <input type="number" class="form-control" name="audit_ts_window" 
-                                           value="6" min="3" max="12">
+                                           value="{{ saved_config.audit_ts_window|default(6, true) }}" min="3" max="12">
                                     <small class="text-muted">จำนวนเดือนย้อนหลังสำหรับเปรียบเทียบ</small>
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Crosstab Min History</label>
                                     <input type="number" class="form-control" name="crosstab_min_history" 
-                                           value="3" min="2" max="12">
+                                           value="{{ saved_config.crosstab_min_history|default(3, true) }}" min="2" max="12">
                                     <small class="text-muted">จำนวนเดือนขั้นต่ำสำหรับการวิเคราะห์</small>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">IQR Multiplier</label>
+                                    <input type="number" class="form-control" name="iqr_k"
+                                           value="{{ saved_config.iqr_k|default(2.0, true) }}" min="0.1" max="10" step="0.1">
+                                    <small class="text-muted">1.5 = strict, 2.0 = ปกติ, 3.0 = relaxed</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Minimum Change Ratio</label>
+                                    <input type="number" class="form-control" name="min_change_ratio"
+                                           value="{{ saved_config.min_change_ratio|default(0.10, true) }}" min="0" max="1" step="0.01">
+                                    <small class="text-muted">0.10 = 10% ต่ำกว่านี้ถือว่า Normal</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Constant Change Ratio</label>
+                                    <input type="number" class="form-control" name="constant_change_ratio"
+                                           value="{{ saved_config.constant_change_ratio|default(0.15, true) }}" min="0" max="1" step="0.01">
+                                    <small class="text-muted">ใช้เมื่อประวัติเดิมนิ่งสนิท</small>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Peer Contamination</label>
+                                    <input type="number" class="form-control" name="peer_contamination"
+                                           value="{{ saved_config.peer_contamination|default(0.05, true) }}" min="0.001" max="0.5" step="0.001">
+                                    <small class="text-muted">0.05 = ให้โมเดลหา candidate outlier ราว 5%</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Peer Z-Score Threshold</label>
+                                    <input type="number" class="form-control" name="peer_zscore_threshold"
+                                           value="{{ saved_config.peer_zscore_threshold|default(2.0, true) }}" min="0" max="10" step="0.1">
+                                    <small class="text-muted">ค่ามากขึ้น = กรองเข้มขึ้น เจอน้อยลง</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Peer Min Group Size</label>
+                                    <input type="number" class="form-control" name="peer_min_group_size"
+                                           value="{{ saved_config.peer_min_group_size|default(5, true) }}" min="2" step="1">
+                                    <small class="text-muted">กลุ่มเล็กกว่านี้จะข้าม Peer Group</small>
                                 </div>
                             </div>
                         </div>
@@ -321,27 +361,53 @@ $(document).ready(function() {
     if ($('select[name="target_col"]').length) {
         new TomSelect('select[name="target_col"]', singleSelectSettings);
     }
-    
-    // Submit configuration
-    $('#configForm').on('submit', function(e) {
-        e.preventDefault();
-        
-        const formData = new FormData(this);
+
+    function readConfigForm() {
+        const formData = new FormData($('#configForm')[0]);
         const config = {};
-        
-        // Convert FormData to object
+
         for (const [key, value] of formData.entries()) {
             if (key.includes('_dimensions') || key.includes('_id_vars')) {
-                // Handle multiple select
                 if (!config[key]) config[key] = [];
                 config[key].push(value);
-            } else if (key.includes('checkbox')) {
-                config[key] = true;
             } else {
                 config[key] = value;
             }
         }
-        
+
+        $('#configForm input[type="checkbox"][name]').each(function() {
+            config[this.name] = this.checked;
+        });
+
+        return config;
+    }
+
+    function asBool(value) {
+        return value === true || value === 1 || ['true', 'on', 'yes', '1'].includes(String(value).toLowerCase());
+    }
+
+    function setFieldValue(key, value) {
+        const input = $(`[name="${key}"]`);
+        if (!input.length) return;
+
+        if (input.attr('type') === 'checkbox') {
+            input.prop('checked', asBool(value));
+            return;
+        }
+
+        if (input[0].tomselect) {
+            input[0].tomselect.setValue(value || [], true);
+            return;
+        }
+
+        input.val(value);
+    }
+
+    // Submit configuration
+    $('#configForm').on('submit', function(e) {
+        e.preventDefault();
+        const config = readConfigForm();
+
         // Validate
         if (!confirm('ยืนยันการเริ่มวิเคราะห์ข้อมูล?')) {
             return;
@@ -374,11 +440,7 @@ $(document).ready(function() {
             return;
         }
 
-        const formData = new FormData($('#configForm')[0]);
-        const config = {};
-        for (const [key, value] of formData.entries()) {
-            config[key] = value;
-        }
+        const config = readConfigForm();
 
         $.ajax({
             url: '{{ url_for("save_template") }}',
@@ -410,10 +472,8 @@ $(document).ready(function() {
             success: function(template) {
                 // Populate form with template values
                 for (const [key, value] of Object.entries(template)) {
-                    const input = $(`[name="${key}"]`);
-                    if (input.length) {
-                        input.val(value);
-                    }
+                    if (key === 'file_id' || key === 'input_mode') continue;
+                    setFieldValue(key, value);
                 }
                 alert('โหลด template สำเร็จ');
             },

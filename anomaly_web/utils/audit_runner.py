@@ -71,7 +71,7 @@ class AuditRunner:
             df_clean = self._prepare_data(df, config)
             
             # Initialize reporter
-            reporter = ExcelReporter(output_file)
+            reporter = ExcelReporter(output_file, anomaly_settings=config)
             
             # ตัวแปรเก็บ Log
             df_ts_log = pd.DataFrame()
@@ -374,7 +374,7 @@ class AuditRunner:
         """รัน Time Series Analysis"""
         print("   🔄 Running Time Series Analysis...")
         
-        full_audit_gen = FullAuditEngine(df.copy())
+        full_audit_gen = FullAuditEngine(df.copy(), anomaly_settings=config)
         
         df_ts_log = full_audit_gen.audit_time_series_all_months(
             target_col=config.get('target_col', 'VALUE'),
@@ -401,7 +401,7 @@ class AuditRunner:
         print("   🔄 Running Peer Group Analysis...")
         print("   ⚠️  This may take a while for large datasets...")
         
-        full_audit_gen = FullAuditEngine(df.copy())
+        full_audit_gen = FullAuditEngine(df.copy(), anomaly_settings=config)
         
         df_peer_log = full_audit_gen.audit_peer_group_all_months(
             target_col=config.get('target_col', 'VALUE'),
@@ -423,7 +423,8 @@ class AuditRunner:
         
         crosstab_gen = CrosstabGenerator(
             df_clean.copy(),
-            min_history=config.get('crosstab_min_history', 3)
+            min_history=config.get('crosstab_min_history', 3),
+            anomaly_settings=config
         )
         
         df_crosstab = crosstab_gen.create_report(
@@ -438,7 +439,8 @@ class AuditRunner:
             df_anomaly_log=df_ts_log,
             dimensions=config.get('crosstab_dimensions', []),
             date_col_name=config.get('date_col_name', '__date_col__'),
-            date_cols_sorted=crosstab_gen.date_cols_sorted
+            date_cols_sorted=crosstab_gen.date_cols_sorted,
+            min_history=config.get('crosstab_min_history', 3)
         )
         
         print(f"   ✓ Crosstab report generated")

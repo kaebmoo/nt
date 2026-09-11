@@ -104,6 +104,12 @@ HR,6001,Salary,100000,105000,103000
 2. **Tune Parameters**:
    - `audit_ts_window`: 3-6 = sensitive, 6-12 = moderate
    - `crosstab_min_history`: 3 = strict, 6 = relaxed
+   - `iqr_k`: 1.5 = strict, 2.0 = ปกติ, 3.0 = relaxed
+   - `min_change_ratio`: 0.10 = ต้องเปลี่ยนอย่างน้อย 10% ก่อนจับ anomaly
+   - `constant_change_ratio`: 0.15 = threshold เมื่อ history คงที่
+   - `peer_contamination`: 0.05 = ให้ Isolation Forest หา candidate outlier ราว 5%
+   - `peer_zscore_threshold`: 2.0 = กรอง candidate ด้วย z-score
+   - `peer_min_group_size`: 5 = จำนวนรายการขั้นต่ำต่อ peer group
 3. **Batch Processing** - ประมวลผลหลายไฟล์พร้อมกันด้วย configuration เดียวกัน
 
 ---
@@ -122,6 +128,8 @@ HR,6001,Salary,100000,105000,103000
 ### ❌ ปัญหา: "ไม่มี anomaly เลย"
 **แก้ไข**:
 - ลด `audit_ts_window` จาก 6 เป็น 3
+- ลด `iqr_k` หรือ `peer_zscore_threshold`
+- ลด `min_change_ratio` ถ้าอยากให้การเปลี่ยนแปลงเล็กลงถูกจับด้วย
 - ตรวจสอบว่าข้อมูลมีความแปรปรวนเพียงพอ
 - ดูใน sheet "Full_Audit_Log" ว่ามี anomaly ที่ไม่ critical
 
