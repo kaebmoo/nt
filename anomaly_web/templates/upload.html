@@ -13,7 +13,7 @@
                     <i class="bi bi-cloud-upload text-primary"></i>
                     อัพโหลดไฟล์ข้อมูล
                 </h2>
-                <p class="text-muted">รองรับไฟล์ CSV และ Excel (XLSX, XLS) ขนาดไม่เกิน 500 MB</p>
+                <p class="text-muted">รองรับไฟล์ CSV และ Excel (XLSX, XLSM) ขนาดรวมไม่เกิน 2 GB</p>
             </div>
 
             <!-- Upload Form -->
@@ -26,11 +26,11 @@
                                 <i class="bi bi-file-earmark-arrow-up"></i> เลือกไฟล์
                             </label>
                             <input type="file" class="form-control form-control-lg" id="fileInput" name="file" 
-                                   accept=".csv,.xlsx,.xls" multiple required>
+                                   accept=".csv,.xlsx,.xlsm" multiple required>
                             <div class="form-text">
-                                รองรับ: CSV, XLSX, XLS &mdash;
+                                รองรับ: CSV, XLSX, XLSM &mdash;
                                 เลือกได้หลายไฟล์พร้อมกัน (กด Shift/Cmd ค้าง)
-                                ถ้าเป็น CSV ที่มีหัวคอลัมน์เหมือนกัน ระบบจะรวมเป็นไฟล์เดียวให้อัตโนมัติ
+                                ถ้าเป็นไฟล์ชนิดเดียวกันและมีหัวคอลัมน์เหมือนกัน ระบบจะรวมเป็นไฟล์เดียวให้อัตโนมัติ
                             </div>
                             <div id="fileList" class="form-text text-primary"></div>
                         </div>
@@ -117,6 +117,8 @@
 {% block extra_js %}
 <script>
 $(document).ready(function() {
+    let uploadProgressInterval = null;
+
     $('#fileInput').on('change', function() {
         const n = this.files.length;
         $('#fileList').text(n > 1 ? `เลือก ${n} ไฟล์ - จะถูกรวมเป็นไฟล์เดียว` : '');
@@ -126,6 +128,10 @@ $(document).ready(function() {
         e.preventDefault();
         
         const formData = new FormData(this);
+        const uploadId = (window.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+        formData.append('upload_id', uploadId);
         const fileInput = $('#fileInput')[0];
         
         // Validate file
@@ -137,6 +143,17 @@ $(document).ready(function() {
         // Show progress
         $('#uploadBtn').prop('disabled', true);
         $('#uploadProgress').show();
+        setUploadProgress(0, 'กำลังอัพโหลดจากเครื่องไป server...');
+
+        uploadProgressInterval = setInterval(function() {
+            $.getJSON('/api/upload-progress/' + uploadId, function(progress) {
+                if (progress.status === 'not_started') return;
+                setUploadProgress(progress.progress || 0, progress.message || 'กำลังประมวลผลไฟล์...');
+                if (progress.status === 'completed' || progress.status === 'error') {
+                    clearInterval(uploadProgressInterval);
+                }
+            });
+        }, 1000);
         
         // Upload file
         $.ajax({
@@ -150,23 +167,37 @@ $(document).ready(function() {
                 xhr.upload.addEventListener('progress', function(e) {
                     if (e.lengthComputable) {
                         const percentComplete = (e.loaded / e.total) * 100;
-                        $('.progress-bar').css('width', percentComplete + '%');
+                        setUploadProgress(percentComplete, 'กำลังอัพโหลดจากเครื่องไป server...');
+                        if (percentComplete >= 100) {
+                            setUploadProgress(100, 'อัพโหลดเสร็จแล้ว กำลังรวมไฟล์บน server...');
+                        }
                     }
                 }, false);
                 return xhr;
             },
             success: function(response) {
+                clearInterval(uploadProgressInterval);
                 // Redirect is handled by server
                 window.location.href = response.redirect || '/';
             },
             error: function(xhr) {
+                clearInterval(uploadProgressInterval);
                 alert('เกิดข้อผิดพลาด: ' + (xhr.responseJSON?.error || 'Unknown error'));
                 $('#uploadBtn').prop('disabled', false);
                 $('#uploadProgress').hide();
-                $('.progress-bar').css('width', '0%');
+                setUploadProgress(0, 'กำลังอัพโหลด...');
             }
         });
     });
+
+    function setUploadProgress(percent, message) {
+        const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+        $('#uploadProgress .progress-bar')
+            .css('width', safePercent + '%')
+            .attr('aria-valuenow', safePercent)
+            .text(safePercent.toFixed(0) + '%');
+        $('#uploadProgress p').text(message || 'กำลังอัพโหลด...');
+    }
 });
 </script>
 {% endblock %}

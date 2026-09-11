@@ -11,8 +11,10 @@ from datetime import datetime
 
 try:
     from .anomaly_settings import normalize_anomaly_settings
+    from .data_cleaning import BAD_DATE_POLICIES, BAD_VALUE_POLICIES, DATE_GRAINS, DATE_PARSE_MODES
 except ImportError:
     from anomaly_settings import normalize_anomaly_settings
+    from data_cleaning import BAD_DATE_POLICIES, BAD_VALUE_POLICIES, DATE_GRAINS, DATE_PARSE_MODES
 
 class ConfigManager:
     """จัดการ configuration และ templates"""
@@ -69,7 +71,8 @@ class ConfigManager:
             'run_time_series_analysis',
             'run_peer_group_analysis',
             'run_crosstab_report',
-            'run_full_audit_log'
+            'run_full_audit_log',
+            'highlight_previous_change'
         ]
 
         for field in boolean_fields:
@@ -100,6 +103,17 @@ class ConfigManager:
                     elif field == 'crosstab_skiprows':
                         config[field] = 0
 
+        # Float fields
+        float_defaults = {
+            'value_multiplier': 1.0,
+            'value_add': 0.0,
+        }
+        for field, default in float_defaults.items():
+            try:
+                config[field] = float(config.get(field, default))
+            except (ValueError, TypeError):
+                config[field] = default
+
         # List fields - ensure they are lists
         list_fields = [
             'crosstab_dimensions',
@@ -123,6 +137,21 @@ class ConfigManager:
         # Add date_col_name if not present
         if 'date_col_name' not in config:
             config['date_col_name'] = '__date_col__'
+
+        if config.get('date_parse_mode') not in DATE_PARSE_MODES:
+            config['date_parse_mode'] = 'auto'
+
+        if config.get('date_grain') not in DATE_GRAINS:
+            config['date_grain'] = 'month'
+
+        if config.get('bad_value_policy') not in BAD_VALUE_POLICIES:
+            config['bad_value_policy'] = 'zero'
+
+        if config.get('bad_date_policy') not in BAD_DATE_POLICIES:
+            config['bad_date_policy'] = 'drop'
+
+        if config.get('input_mode') == 'crosstab' and not config.get('target_col'):
+            config['target_col'] = config.get('crosstab_value_name') or 'VALUE'
 
         # If audit_ts_dimensions is empty, use crosstab_dimensions
         if not config.get('audit_ts_dimensions') and config.get('crosstab_dimensions'):
@@ -148,7 +177,6 @@ class ConfigManager:
         # Required fields
         required_fields = [
             'input_mode',
-            'target_col',
             'crosstab_dimensions'
         ]
         
@@ -169,6 +197,8 @@ class ConfigManager:
         
         # Long mode validation
         if config_data.get('input_mode') == 'long':
+            if not config_data.get('target_col'):
+                errors.append("Missing required field: target_col")
             # ต้องมี YEAR+MONTH หรือ DATE
             has_year_month = config_data.get('col_year') and config_data.get('col_month')
             has_date = config_data.get('date_column')
@@ -182,8 +212,25 @@ class ConfigManager:
             errors.append("crosstab_dimensions must be a non-empty list")
         
         # Analysis options validation
-        if not config_data.get('run_time_series_analysis') and not config_data.get('run_peer_group_analysis'):
-            errors.append("At least one analysis method must be enabled")
+        has_output = any([
+            config_data.get('run_crosstab_report'),
+            config_data.get('run_time_series_analysis'),
+            config_data.get('run_peer_group_analysis'),
+        ])
+        if not has_output:
+            errors.append("At least one report or analysis method must be enabled")
+
+        if config_data.get('date_parse_mode') and config_data.get('date_parse_mode') not in DATE_PARSE_MODES:
+            errors.append("date_parse_mode is not supported")
+
+        if config_data.get('date_grain') and config_data.get('date_grain') not in DATE_GRAINS:
+            errors.append("date_grain is not supported")
+
+        if config_data.get('bad_value_policy') and config_data.get('bad_value_policy') not in BAD_VALUE_POLICIES:
+            errors.append("bad_value_policy is not supported")
+
+        if config_data.get('bad_date_policy') and config_data.get('bad_date_policy') not in BAD_DATE_POLICIES:
+            errors.append("bad_date_policy is not supported")
         
         return {
             'valid': len(errors) == 0,

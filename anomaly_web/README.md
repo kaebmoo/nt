@@ -147,8 +147,11 @@ HR,6001,Salary,100000,105000,103000
 ### **Input Mode Settings**
 
 #### Long Format
+- `date_column`: Column วันที่ที่ใช้แทน YEAR+MONTH ได้
 - `col_year`: Column ที่เก็บปี (default: "YEAR")
 - `col_month`: Column ที่เก็บเดือน (default: "MONTH")
+- `date_parse_mode`: วิธีแปลงวันที่ (`auto`, `dmy_dot`, `dmy_slash`, `mdy_slash`, `ymd`, `yyyymmdd`, `excel_serial`, `dayfirst`, `monthfirst`)
+- `date_grain`: ระดับการรวมวันที่ก่อนวิเคราะห์ (`month`, `day`, `year`; default: `month`)
 
 #### Crosstab Format
 - `crosstab_id_vars`: Columns ที่เป็น dimensions (e.g., ["GROUP_NAME", "GL_CODE"])
@@ -163,6 +166,10 @@ HR,6001,Salary,100000,105000,103000
 - `audit_ts_dimensions`: Dimensions สำหรับ Time Series Analysis
 - `audit_peer_group_by`: Dimensions สำหรับ Peer Group
 - `audit_peer_item_id`: Column ที่เป็น Item ID สำหรับ Peer Group
+- `bad_value_policy`: วิธีจัดการ value ที่แปลงเป็นตัวเลขไม่ได้ (`zero`, `drop`, `error`)
+- `bad_date_policy`: วิธีจัดการวันที่ที่แปลงไม่ได้ (`drop`, `error`, `keep`)
+- `value_multiplier`: คูณค่าใน value column ก่อนคำนวณ เช่น `-1` เพื่อกลับเครื่องหมาย
+- `value_add`: บวกค่าคงที่หลังคูณ value column
 
 ### **Analysis Options**
 
@@ -181,6 +188,24 @@ HR,6001,Salary,100000,105000,103000
 - `peer_contamination`: สัดส่วน candidate outlier ของ Isolation Forest (default: 0.05 = 5%)
 - `peer_zscore_threshold`: z-score ขั้นต่ำหลังผ่าน Isolation Forest (default: 2.0)
 - `peer_min_group_size`: จำนวนรายการขั้นต่ำต่อ peer group ก่อนวิเคราะห์ (default: 5)
+- `highlight_previous_change`: เปิด/ปิดการ highlight คอลัมน์ผลต่างล่าสุดเทียบก่อนหน้า
+- `previous_change_highlight_high_ratio`: highlight เมื่อ `PCT_DIFF_PREVIOUS` มากกว่าค่านี้ (default: 0.10 = 10%)
+- `previous_change_highlight_low_ratio`: highlight เมื่อ `PCT_DIFF_PREVIOUS` น้อยกว่าค่านี้ (default: -0.10 = -10%)
+
+### **คอลัมน์ผลต่างล่าสุดเทียบก่อนหน้า**
+
+Crosstab Report จะเพิ่ม:
+- `PREVIOUS_VALUE`: ค่าของ period ก่อนหน้าล่าสุด
+- `DIFF_PREVIOUS`: `LATEST_VALUE - PREVIOUS_VALUE`
+- `PCT_DIFF_PREVIOUS`: `DIFF_PREVIOUS / PREVIOUS_VALUE * 100`
+
+ถ้า sheet มีจำนวนแถวเกิน limit ของ Excel ระบบจะแบ่งเป็นหลาย sheet อัตโนมัติ เช่น `Crosstab_Report_1`, `Crosstab_Report_2`
+
+### **Upload ไฟล์ใหญ่**
+
+- เลือกหลายไฟล์ `.csv`, `.xlsx`, `.xlsm` พร้อมกันได้ ถ้าหัวคอลัมน์ตรงกัน
+- ระหว่าง upload/merge ระบบจะแสดง progress จาก browser และ server เช่น ไฟล์ที่กำลังรวมและจำนวน row ที่อ่านแล้ว
+- ขนาดรวม default ไม่เกิน 2 GB และ override ได้ด้วย environment variable `MAX_UPLOAD_MB`
 
 ### **PCT_CHANGE คำนวณอย่างไร**
 
@@ -223,6 +248,7 @@ anomaly_web/
 │   ├── audit_runner.py         # Main audit runner
 │   ├── file_handler.py         # File management
 │   ├── data_analyzer.py        # Data analysis utilities
+│   ├── data_cleaning.py        # Date/value cleaning utilities
 │   └── config_manager.py       # Configuration management
 ├── templates/                  # HTML templates
 │   ├── index.html

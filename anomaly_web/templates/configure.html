@@ -32,6 +32,11 @@
                         <h5 class="mb-0">1. คอลัมน์วันที่และค่า</h5>
                     </div>
                     <div class="card-body">
+                        {% set saved_date_column = saved_config.date_column if saved_config else '' %}
+                        {% set saved_year_column = saved_config.col_year if saved_config else '' %}
+                        {% set saved_month_column = saved_config.col_month if saved_config else '' %}
+                        {% set saved_target_col = saved_config.target_col if saved_config else '' %}
+                        {% set recommended_value_names = analysis.recommendations.value_columns|map(attribute='name')|list %}
                         <div class="row">
                             <div class="col-md-3 mb-3">
                                 <label class="form-label">DATE Column</label>
@@ -39,7 +44,7 @@
                                     <option value="">-- ไม่ใช้ --</option>
                                     {% for col in analysis.columns.keys() %}
                                     <option value="{{ col }}"
-                                            {% if col == analysis.recommendations.date_column %}selected{% endif %}>
+                                            {% if col == saved_date_column or (not saved_date_column and col == analysis.recommendations.date_column) %}selected{% endif %}>
                                         {{ col }}
                                     </option>
                                     {% endfor %}
@@ -52,7 +57,7 @@
                                     <option value="">-- เลือก --</option>
                                     {% for col in analysis.columns.keys() %}
                                     <option value="{{ col }}" 
-                                            {% if col == analysis.recommendations.year_column %}selected{% endif %}>
+                                            {% if col == saved_year_column or (not saved_year_column and col == analysis.recommendations.year_column) %}selected{% endif %}>
                                         {{ col }}
                                     </option>
                                     {% endfor %}
@@ -64,7 +69,7 @@
                                     <option value="">-- เลือก --</option>
                                     {% for col in analysis.columns.keys() %}
                                     <option value="{{ col }}"
-                                            {% if col == analysis.recommendations.month_column %}selected{% endif %}>
+                                            {% if col == saved_month_column or (not saved_month_column and col == analysis.recommendations.month_column) %}selected{% endif %}>
                                         {{ col }}
                                     </option>
                                     {% endfor %}
@@ -74,12 +79,61 @@
                                 <label class="form-label">Value Column *</label>
                                 <select class="form-select" name="target_col" required>
                                     <option value="">-- เลือก --</option>
-                                    {% for col in analysis.recommendations.value_columns %}
-                                    <option value="{{ col.name }}" {% if loop.first %}selected{% endif %}>
-                                        {{ col.name }} ({{ col.confidence }})
+                                    {% for col, info in analysis.columns.items() %}
+                                    <option value="{{ col }}"
+                                            {% if col == saved_target_col or (not saved_target_col and recommended_value_names and col == recommended_value_names[0]) %}selected{% endif %}>
+                                        {{ col }} ({{ info.detected_type }}{% if col in recommended_value_names %}, recommended{% endif %})
                                     </option>
                                     {% endfor %}
                                 </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Date Parse Mode</label>
+                                <select class="form-select" name="date_parse_mode">
+                                    {% set date_parse_mode = saved_config.date_parse_mode|default('auto', true) if saved_config else 'auto' %}
+                                    <option value="auto" {% if date_parse_mode == 'auto' %}selected{% endif %}>Auto</option>
+                                    <option value="dmy_dot" {% if date_parse_mode == 'dmy_dot' %}selected{% endif %}>DD.MM.YYYY</option>
+                                    <option value="dmy_slash" {% if date_parse_mode == 'dmy_slash' %}selected{% endif %}>DD/MM/YYYY</option>
+                                    <option value="mdy_slash" {% if date_parse_mode == 'mdy_slash' %}selected{% endif %}>MM/DD/YYYY</option>
+                                    <option value="ymd" {% if date_parse_mode == 'ymd' %}selected{% endif %}>YYYY-MM-DD</option>
+                                    <option value="yyyymmdd" {% if date_parse_mode == 'yyyymmdd' %}selected{% endif %}>YYYYMMDD</option>
+                                    <option value="excel_serial" {% if date_parse_mode == 'excel_serial' %}selected{% endif %}>Excel Serial Date</option>
+                                    <option value="dayfirst" {% if date_parse_mode == 'dayfirst' %}selected{% endif %}>Day First (general)</option>
+                                    <option value="monthfirst" {% if date_parse_mode == 'monthfirst' %}selected{% endif %}>Month First (general)</option>
+                                </select>
+                                <div class="form-text">ไฟล์ SAP/Excel ที่เป็น 01.02.2026 ให้ใช้ Auto หรือ DD.MM.YYYY</div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Group Date By</label>
+                                <select class="form-select" name="date_grain">
+                                    {% set date_grain = saved_config.date_grain|default('month', true) if saved_config else 'month' %}
+                                    <option value="month" {% if date_grain == 'month' %}selected{% endif %}>Month</option>
+                                    <option value="day" {% if date_grain == 'day' %}selected{% endif %}>Day</option>
+                                    <option value="year" {% if date_grain == 'year' %}selected{% endif %}>Year</option>
+                                </select>
+                                <div class="form-text">รายงานจะ aggregate ตามระดับนี้ก่อน pivot</div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Invalid Date Policy</label>
+                                <select class="form-select" name="bad_date_policy">
+                                    {% set bad_date_policy = saved_config.bad_date_policy|default('drop', true) if saved_config else 'drop' %}
+                                    <option value="drop" {% if bad_date_policy == 'drop' %}selected{% endif %}>Drop rows</option>
+                                    <option value="error" {% if bad_date_policy == 'error' %}selected{% endif %}>Stop with error</option>
+                                    <option value="keep" {% if bad_date_policy == 'keep' %}selected{% endif %}>Keep rows</option>
+                                </select>
+                                <div class="form-text">ถ้าวันที่แปลงไม่ได้ แนะนำ drop หรือ error</div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Invalid Value Policy</label>
+                                <select class="form-select" name="bad_value_policy">
+                                    {% set bad_value_policy = saved_config.bad_value_policy|default('zero', true) if saved_config else 'zero' %}
+                                    <option value="zero" {% if bad_value_policy == 'zero' %}selected{% endif %}>Convert to 0</option>
+                                    <option value="drop" {% if bad_value_policy == 'drop' %}selected{% endif %}>Drop rows</option>
+                                    <option value="error" {% if bad_value_policy == 'error' %}selected{% endif %}>Stop with error</option>
+                                </select>
+                                <div class="form-text">ช่วยให้ column ที่มีข้อความปนยังใช้เป็น value ได้</div>
                             </div>
                         </div>
                     </div>
@@ -92,12 +146,15 @@
                         <h5 class="mb-0">1. Crosstab Configuration</h5>
                     </div>
                     <div class="card-body">
+                        {% set saved_id_vars = saved_config.crosstab_id_vars if saved_config else [] %}
+                        {% set recommended_id_names = analysis.recommendations.id_vars|map(attribute='name')|list %}
                         <div class="mb-3">
                             <label class="form-label">ID Variables (Dimensions) *</label>
                             <select class="form-select" name="crosstab_id_vars" multiple size="5" required>
-                                {% for col in analysis.recommendations.id_vars %}
-                                <option value="{{ col.name }}" selected>
-                                    {{ col.name }} ({{ col.unique_count }} unique)
+                                {% for col, info in analysis.columns.items() %}
+                                <option value="{{ col }}"
+                                        {% if col in saved_id_vars or (not saved_id_vars and col in recommended_id_names) %}selected{% endif %}>
+                                    {{ col }} ({{ info.detected_type }}, {{ info.unique_count }} unique)
                                 </option>
                                 {% endfor %}
                             </select>
@@ -108,15 +165,64 @@
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Value Name *</label>
                                 <input type="text" class="form-control" name="crosstab_value_name" 
-                                       value="{{ analysis.recommendations.value_name_options[0] if analysis.recommendations.value_name_options else 'VALUE' }}" required>
+                                       value="{{ saved_config.crosstab_value_name|default(analysis.recommendations.value_name_options[0] if analysis.recommendations.value_name_options else 'VALUE', true) if saved_config else (analysis.recommendations.value_name_options[0] if analysis.recommendations.value_name_options else 'VALUE') }}" required>
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Mode *</label>
                                 <select class="form-select" name="crosstab_mode">
-                                    <option value="auto" {% if analysis.recommendations.mode == 'auto' %}selected{% endif %}>Auto</option>
-                                    <option value="date" {% if analysis.recommendations.mode == 'date' %}selected{% endif %}>Date (YYYY-MM)</option>
-                                    <option value="sequential">Sequential (1,2,3...)</option>
+                                    {% set crosstab_mode = saved_config.crosstab_mode|default(analysis.recommendations.mode, true) if saved_config else analysis.recommendations.mode %}
+                                    <option value="auto" {% if crosstab_mode == 'auto' %}selected{% endif %}>Auto</option>
+                                    <option value="date" {% if crosstab_mode == 'date' %}selected{% endif %}>Date (YYYY-MM)</option>
+                                    <option value="sequential" {% if crosstab_mode == 'sequential' %}selected{% endif %}>Sequential (1,2,3...)</option>
                                 </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Date Parse Mode</label>
+                                <select class="form-select" name="date_parse_mode">
+                                    {% set date_parse_mode = saved_config.date_parse_mode|default('auto', true) if saved_config else 'auto' %}
+                                    <option value="auto" {% if date_parse_mode == 'auto' %}selected{% endif %}>Auto</option>
+                                    <option value="dmy_dot" {% if date_parse_mode == 'dmy_dot' %}selected{% endif %}>DD.MM.YYYY</option>
+                                    <option value="dmy_slash" {% if date_parse_mode == 'dmy_slash' %}selected{% endif %}>DD/MM/YYYY</option>
+                                    <option value="mdy_slash" {% if date_parse_mode == 'mdy_slash' %}selected{% endif %}>MM/DD/YYYY</option>
+                                    <option value="ymd" {% if date_parse_mode == 'ymd' %}selected{% endif %}>YYYY-MM-DD</option>
+                                    <option value="yyyymmdd" {% if date_parse_mode == 'yyyymmdd' %}selected{% endif %}>YYYYMMDD</option>
+                                    <option value="excel_serial" {% if date_parse_mode == 'excel_serial' %}selected{% endif %}>Excel Serial Date</option>
+                                    <option value="dayfirst" {% if date_parse_mode == 'dayfirst' %}selected{% endif %}>Day First (general)</option>
+                                    <option value="monthfirst" {% if date_parse_mode == 'monthfirst' %}selected{% endif %}>Month First (general)</option>
+                                </select>
+                                <div class="form-text">ใช้กับ period columns ที่เป็นวันที่</div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Group Date By</label>
+                                <select class="form-select" name="date_grain">
+                                    {% set date_grain = saved_config.date_grain|default('month', true) if saved_config else 'month' %}
+                                    <option value="month" {% if date_grain == 'month' %}selected{% endif %}>Month</option>
+                                    <option value="day" {% if date_grain == 'day' %}selected{% endif %}>Day</option>
+                                    <option value="year" {% if date_grain == 'year' %}selected{% endif %}>Year</option>
+                                </select>
+                                <div class="form-text">รายงานจะ aggregate ตามระดับนี้ก่อน pivot</div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Invalid Date Policy</label>
+                                <select class="form-select" name="bad_date_policy">
+                                    {% set bad_date_policy = saved_config.bad_date_policy|default('drop', true) if saved_config else 'drop' %}
+                                    <option value="drop" {% if bad_date_policy == 'drop' %}selected{% endif %}>Drop rows</option>
+                                    <option value="error" {% if bad_date_policy == 'error' %}selected{% endif %}>Stop with error</option>
+                                    <option value="keep" {% if bad_date_policy == 'keep' %}selected{% endif %}>Keep rows</option>
+                                </select>
+                                <div class="form-text">ถ้าวันที่แปลงไม่ได้ แนะนำ drop หรือ error</div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Invalid Value Policy</label>
+                                <select class="form-select" name="bad_value_policy">
+                                    {% set bad_value_policy = saved_config.bad_value_policy|default('zero', true) if saved_config else 'zero' %}
+                                    <option value="zero" {% if bad_value_policy == 'zero' %}selected{% endif %}>Convert to 0</option>
+                                    <option value="drop" {% if bad_value_policy == 'drop' %}selected{% endif %}>Drop rows</option>
+                                    <option value="error" {% if bad_value_policy == 'error' %}selected{% endif %}>Stop with error</option>
+                                </select>
+                                <div class="form-text">ใช้หลัง melt crosstab เป็น long format</div>
                             </div>
                         </div>
                     </div>
@@ -129,15 +235,14 @@
                         <h5 class="mb-0">2. เลือกมิติข้อมูล (Dimensions)</h5>
                     </div>
                     <div class="card-body">
+                        {% set saved_dimensions = saved_config.crosstab_dimensions if saved_config else [] %}
                         <label class="form-label">Crosstab Report Dimensions *</label>
                         <select class="form-select" name="crosstab_dimensions" multiple size="6" required>
                             {% for col, info in analysis.columns.items() %}
-                            {% if info.detected_type in ['categorical', 'text'] %}
                             <option value="{{ col }}" 
-                                    {% if info.is_recommended_dimension %}selected{% endif %}>
-                                {{ col }} ({{ info.unique_count }} unique)
+                                    {% if col in saved_dimensions or (not saved_dimensions and info.is_recommended_dimension) %}selected{% endif %}>
+                                {{ col }} ({{ info.detected_type }}, {{ info.unique_count }} unique)
                             </option>
-                            {% endif %}
                             {% endfor %}
                         </select>
                         <small class="form-text text-muted">เลือกมิติที่ต้องการแสดงในรายงาน</small>
@@ -202,6 +307,45 @@
                                     <input type="number" class="form-control" name="crosstab_min_history" 
                                            value="{{ saved_config.crosstab_min_history|default(3, true) }}" min="2" max="12">
                                     <small class="text-muted">จำนวนเดือนขั้นต่ำสำหรับการวิเคราะห์</small>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Value Multiplier</label>
+                                    <input type="number" class="form-control" name="value_multiplier"
+                                           value="{{ saved_config.value_multiplier|default(1.0, true) if saved_config else 1.0 }}" step="any">
+                                    <small class="text-muted">เช่น -1 เพื่อกลับเครื่องหมายก่อนคำนวณ anomaly</small>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Value Add</label>
+                                    <input type="number" class="form-control" name="value_add"
+                                           value="{{ saved_config.value_add|default(0.0, true) if saved_config else 0.0 }}" step="any">
+                                    <small class="text-muted">บวก/ลบค่าคงที่หลังคูณ multiplier</small>
+                                </div>
+                            </div>
+                            <div class="row align-items-end">
+                                <div class="col-md-4 mb-3">
+                                    {% set highlight_previous_change = saved_config.highlight_previous_change|default(true) if saved_config else true %}
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="highlightPreviousChange"
+                                               name="highlight_previous_change" {% if highlight_previous_change %}checked{% endif %}>
+                                        <label class="form-check-label" for="highlightPreviousChange">
+                                            Highlight Previous Change
+                                        </label>
+                                    </div>
+                                    <small class="text-muted">ไฮไลท์ DIFF/PCT_DIFF_PREVIOUS</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">High Change Threshold</label>
+                                    <input type="number" class="form-control" name="previous_change_highlight_high_ratio"
+                                           value="{{ saved_config.previous_change_highlight_high_ratio|default(0.10, true) if saved_config else 0.10 }}" min="0" max="1" step="0.01">
+                                    <small class="text-muted">0.10 = มากกว่า 10%</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Low Change Threshold</label>
+                                    <input type="number" class="form-control" name="previous_change_highlight_low_ratio"
+                                           value="{{ saved_config.previous_change_highlight_low_ratio|default(-0.10, true) if saved_config else -0.10 }}" min="-1" max="0" step="0.01">
+                                    <small class="text-muted">-0.10 = น้อยกว่า -10%</small>
                                 </div>
                             </div>
                             <div class="row">
@@ -340,8 +484,9 @@ $(document).ready(function() {
     const tsSettings = {
         plugins: ['remove_button'],
         create: false,
+        dropdownParent: 'body',
     };
-    const singleSelectSettings = { create: false };
+    const singleSelectSettings = { create: false, dropdownParent: 'body' };
 
     if ($('select[name="crosstab_id_vars"]').length) {
         new TomSelect('select[name="crosstab_id_vars"]', tsSettings);
@@ -360,6 +505,21 @@ $(document).ready(function() {
     }
     if ($('select[name="target_col"]').length) {
         new TomSelect('select[name="target_col"]', singleSelectSettings);
+    }
+    if ($('select[name="crosstab_mode"]').length) {
+        new TomSelect('select[name="crosstab_mode"]', singleSelectSettings);
+    }
+    if ($('select[name="date_parse_mode"]').length) {
+        new TomSelect('select[name="date_parse_mode"]', singleSelectSettings);
+    }
+    if ($('select[name="date_grain"]').length) {
+        new TomSelect('select[name="date_grain"]', singleSelectSettings);
+    }
+    if ($('select[name="bad_date_policy"]').length) {
+        new TomSelect('select[name="bad_date_policy"]', singleSelectSettings);
+    }
+    if ($('select[name="bad_value_policy"]').length) {
+        new TomSelect('select[name="bad_value_policy"]', singleSelectSettings);
     }
 
     function readConfigForm() {

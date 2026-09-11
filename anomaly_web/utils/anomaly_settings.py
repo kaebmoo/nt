@@ -5,6 +5,10 @@ DEFAULT_ANOMALY_SETTINGS = {
     "peer_contamination": 0.05,
     "peer_zscore_threshold": 2.0,
     "peer_min_group_size": 5,
+    "date_grain": "month",
+    "highlight_previous_change": True,
+    "previous_change_highlight_high_ratio": 0.10,
+    "previous_change_highlight_low_ratio": -0.10,
 }
 
 
@@ -45,6 +49,33 @@ def _int(value, default, minimum=None):
     return value
 
 
+def _bool(value, default=False):
+    if _is_blank(value):
+        return default
+    if isinstance(value, str):
+        return value.lower() in ["true", "on", "yes", "1"]
+    return bool(value)
+
+
+def _signed_ratio(value, default, minimum=-1.0, maximum=1.0):
+    value = _float(value, default)
+    if abs(value) > 1:
+        value = value / 100
+    return max(minimum, min(maximum, value))
+
+
+def _positive_ratio(value, default):
+    return abs(_signed_ratio(value, default, minimum=-1.0, maximum=1.0))
+
+
+def _negative_ratio(value, default):
+    return -abs(_signed_ratio(value, default, minimum=-1.0, maximum=1.0))
+
+
+def _choice(value, default, choices):
+    return value if value in choices else default
+
+
 def normalize_anomaly_settings(config=None):
     config = config or {}
     defaults = DEFAULT_ANOMALY_SETTINGS
@@ -67,5 +98,18 @@ def normalize_anomaly_settings(config=None):
             config.get("peer_min_group_size"),
             defaults["peer_min_group_size"],
             minimum=2,
+        ),
+        "date_grain": _choice(config.get("date_grain"), defaults["date_grain"], {"day", "month", "year"}),
+        "highlight_previous_change": _bool(
+            config.get("highlight_previous_change"),
+            defaults["highlight_previous_change"],
+        ),
+        "previous_change_highlight_high_ratio": _positive_ratio(
+            config.get("previous_change_highlight_high_ratio"),
+            defaults["previous_change_highlight_high_ratio"],
+        ),
+        "previous_change_highlight_low_ratio": _negative_ratio(
+            config.get("previous_change_highlight_low_ratio"),
+            defaults["previous_change_highlight_low_ratio"],
         ),
     }

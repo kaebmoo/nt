@@ -4,8 +4,10 @@ from sklearn.ensemble import IsolationForest
 
 try:
     from .anomaly_settings import DEFAULT_ANOMALY_SETTINGS, normalize_anomaly_settings
+    from .data_cleaning import apply_date_grain, format_date_label
 except ImportError:
     from anomaly_settings import DEFAULT_ANOMALY_SETTINGS, normalize_anomaly_settings
+    from data_cleaning import apply_date_grain, format_date_label
 
 K = DEFAULT_ANOMALY_SETTINGS["iqr_k"]  # Backward-compatible default
 
@@ -61,6 +63,7 @@ class CrosstabGenerator:
             
         self.min_history = min_history
         self.anomaly_settings = normalize_anomaly_settings(anomaly_settings)
+        self.date_grain = self.anomaly_settings["date_grain"]
         self.date_cols_sorted = []
         print("[Engine]: CrosstabGenerator Initialized.")
 
@@ -68,11 +71,13 @@ class CrosstabGenerator:
         print(f"[Engine]: Creating Crosstab Report for '{target_col}'...")
         if self.df.empty: return pd.DataFrame() # Safety check
 
-        agg_df = self.df.groupby(dimensions + [date_col])[target_col].sum().reset_index()
+        df_calc = self.df.copy()
+        df_calc[date_col] = apply_date_grain(df_calc[date_col], self.date_grain)
+        agg_df = df_calc.groupby(dimensions + [date_col])[target_col].sum().reset_index()
         crosstab = agg_df.pivot_table(
             index=dimensions, columns=date_col, values=target_col, fill_value=0
         )
-        crosstab.columns = [col.strftime('%Y-%m') for col in crosstab.columns]
+        crosstab.columns = [format_date_label(col, self.date_grain) for col in crosstab.columns]
         self.date_cols_sorted = sorted(crosstab.columns)
         if not self.date_cols_sorted: return pd.DataFrame()
 
@@ -82,6 +87,14 @@ class CrosstabGenerator:
         )
         report_data.columns = ['ANOMALY_STATUS', 'LATEST_VALUE', 'AVG_HISTORICAL']
         final_report = pd.concat([crosstab, report_data], axis=1)
+        if len(self.date_cols_sorted) >= 2:
+            final_report['PREVIOUS_VALUE'] = crosstab[self.date_cols_sorted[-2]]
+        else:
+            final_report['PREVIOUS_VALUE'] = 0
+        final_report['DIFF_PREVIOUS'] = final_report['LATEST_VALUE'] - final_report['PREVIOUS_VALUE']
+        final_report['PCT_DIFF_PREVIOUS'] = (
+            final_report['DIFF_PREVIOUS'] / final_report['PREVIOUS_VALUE'].replace(0, np.nan) * 100
+        ).fillna(0)
         final_report['PCT_CHANGE'] = ((final_report['LATEST_VALUE'] - final_report['AVG_HISTORICAL']) / 
                                       final_report['AVG_HISTORICAL'].replace(0, np.nan) * 100).fillna(0)
         return final_report.reset_index()
@@ -113,7 +126,10 @@ class FullAuditEngine:
         
         # ✅ ใช้อันใหม่: ยุบรวมยอดขายรายเดือนก่อนเริ่มคำนวณ
         # เพื่อให้ Engine มองเห็นยอด Net ของเดือนนั้นจริงๆ
-        df_calc = self.df.groupby(dimensions + [date_col])[target_col].sum().reset_index()
+        df_base = self.df.copy()
+        date_grain = self.anomaly_settings["date_grain"]
+        df_base[date_col] = apply_date_grain(df_base[date_col], date_grain)
+        df_calc = df_base.groupby(dimensions + [date_col])[target_col].sum().reset_index()
         
         # Validation: ตรวจสอบว่ามี columns ที่จำเป็น
         required_cols = dimensions + [date_col, target_col]
@@ -254,8 +270,10 @@ class FullAuditEngine:
         peer_min_group_size = self.anomaly_settings["peer_min_group_size"]
         peer_contamination = self.anomaly_settings["peer_contamination"]
         peer_zscore_threshold = self.anomaly_settings["peer_zscore_threshold"]
-        for d in self.df[date_col].unique():
-            period_data = self.df[self.df[date_col] == d].copy()
+        df_base = self.df.copy()
+        df_base[date_col] = apply_date_grain(df_base[date_col], self.anomaly_settings["date_grain"])
+        for d in df_base[date_col].unique():
+            period_data = df_base[df_base[date_col] == d].copy()
             if group_dims:
                 try: period_data['__GRP_ID__'] = period_data[group_dims].apply(lambda x: '|'.join(x.astype(str)), axis=1)
                 except: continue

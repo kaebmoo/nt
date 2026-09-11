@@ -80,7 +80,11 @@ body {
 }
 
 .ts-dropdown {
-    z-index: 2000;
+    z-index: 10000;
+}
+
+.ts-wrapper.dropdown-active {
+    z-index: 10001;
 }
 
 /* Progress Bar */

@@ -17,6 +17,13 @@ from .anomaly_engine import CrosstabGenerator, FullAuditEngine
 from .csv_io import read_any
 from .anomaly_reporter import ExcelReporter
 from .crosstab_converter import CrosstabConverter
+from .data_cleaning import (
+    apply_date_grain,
+    apply_value_transform,
+    clean_numeric_series,
+    numeric_bad_mask,
+    parse_date_series,
+)
 
 class AuditRunner:
     """รัน anomaly detection พร้อมติดตาม progress"""
@@ -231,7 +238,8 @@ class AuditRunner:
                 skiprows=config.get('crosstab_skiprows', 0),
                 id_vars=config.get('crosstab_id_vars', []),
                 value_name=config.get('crosstab_value_name', 'VALUE'),
-                mode=config.get('crosstab_mode', 'auto')
+                mode=config.get('crosstab_mode', 'auto'),
+                date_parse_mode=config.get('date_parse_mode', 'auto')
             )
         else:
             # Direct long format
@@ -251,10 +259,11 @@ class AuditRunner:
         col_month = config.get('col_month')
         date_column = config.get('date_column')  # Date column in YYYY-MM or YYYY-MM-DD format
         date_col_name = config.get('date_col_name', '__date_col__')
+        date_parse_mode = config.get('date_parse_mode', 'auto')
 
         # Priority 1: Use date_column if specified (YYYY-MM or YYYY-MM-DD format)
         if date_column and date_column in df.columns:
-            df[date_col_name] = pd.to_datetime(df[date_column], errors='coerce')
+            df[date_col_name] = parse_date_series(df[date_column], date_parse_mode)
             # Extract year and month from date if not already present
             if not col_year or col_year not in df.columns:
                 df['YEAR'] = df[date_col_name].dt.year
@@ -271,7 +280,7 @@ class AuditRunner:
 
             # If year column looks like YYYY-MM format, use it directly
             if '-' in sample_year or '/' in sample_year:
-                df[date_col_name] = pd.to_datetime(df[col_year], errors='coerce')
+                df[date_col_name] = parse_date_series(df[col_year], date_parse_mode)
                 # Extract year and month
                 df['YEAR'] = df[date_col_name].dt.year
                 df['MONTH'] = df[date_col_name].dt.month
@@ -295,7 +304,7 @@ class AuditRunner:
 
         # Priority 3: If data comes from crosstab converter, it might already have a 'DATE' column
         elif 'DATE' in df.columns:
-             df[date_col_name] = pd.to_datetime(df['DATE'], errors='coerce')
+             df[date_col_name] = parse_date_series(df['DATE'], date_parse_mode)
              if not col_year or col_year not in df.columns:
                 df['YEAR'] = df[date_col_name].dt.year
                 col_year = 'YEAR'
@@ -306,18 +315,25 @@ class AuditRunner:
             # If date columns don't exist, create dummy dates
             df[date_col_name] = pd.to_datetime('2024-01-01')
             print(f"   ⚠️ Warning: Date columns not found. Using dummy dates.")
+
+        df = self._handle_bad_dates(df, date_col_name, config)
+        df[date_col_name] = apply_date_grain(df[date_col_name], config.get('date_grain', 'month'))
         
         # 2. Clean numeric column
         target_col = config.get('target_col', 'VALUE')
         if target_col in df.columns:
-            df[target_col] = self._clean_numeric_column(df[target_col])
+            df = self._prepare_target_value(df, source_col=target_col, target_col=target_col, config=config)
         else:
             # This can happen if crosstab_value_name doesn't match the melt result
             value_name_from_config = config.get('crosstab_value_name', 'VALUE')
             if value_name_from_config in df.columns:
-                 df[target_col] = self._clean_numeric_column(df[value_name_from_config])
-                 if target_col != value_name_from_config:
-                     df.drop(columns=[value_name_from_config], inplace=True)
+                 df = self._prepare_target_value(
+                     df,
+                     source_col=value_name_from_config,
+                     target_col=target_col,
+                     config=config,
+                     drop_source=(target_col != value_name_from_config)
+                 )
             else:
                 print(f"   ⚠️ Warning: Target column '{target_col}' not found.")
                 df[target_col] = 0
@@ -341,6 +357,58 @@ class AuditRunner:
         
         print(f"   ✓ Data prepared: {len(df):,} rows")
         return df
+
+    def _handle_bad_dates(self, df, date_col_name, config):
+        bad_mask = df[date_col_name].isna()
+        bad_count = int(bad_mask.sum())
+        if bad_count == 0:
+            return df
+
+        policy = config.get('bad_date_policy', 'drop')
+        if policy == 'error':
+            raise ValueError(
+                f"Date column แปลงวันที่ไม่ได้ {bad_count:,} แถว "
+                f"(ลองเปลี่ยน Date Parse Mode ใน config)"
+            )
+        if policy == 'drop':
+            print(f"   ⚠️ Dropping {bad_count:,} rows with invalid dates.")
+            return df.loc[~bad_mask].copy()
+
+        print(f"   ⚠️ Keeping {bad_count:,} rows with invalid dates.")
+        return df
+
+    def _prepare_target_value(self, df, source_col, target_col, config, drop_source=False):
+        numeric = clean_numeric_series(df[source_col])
+        bad_mask = numeric_bad_mask(df[source_col], numeric)
+        bad_count = int(bad_mask.sum())
+        policy = config.get('bad_value_policy', 'zero')
+
+        if bad_count:
+            examples = df.loc[bad_mask, source_col].astype(str).head(5).tolist()
+            if policy == 'error':
+                raise ValueError(
+                    f"Value column '{source_col}' มี {bad_count:,} ค่า ที่แปลงเป็นตัวเลขไม่ได้ "
+                    f"เช่น {examples}"
+                )
+            if policy == 'drop':
+                print(f"   ⚠️ Dropping {bad_count:,} rows with invalid value in '{source_col}'.")
+                df = df.loc[~bad_mask].copy()
+                numeric = numeric.loc[~bad_mask]
+            else:
+                print(f"   ⚠️ Converting {bad_count:,} invalid values in '{source_col}' to 0.")
+
+        numeric = numeric.fillna(0)
+        multiplier = float(config.get('value_multiplier', 1.0) or 1.0)
+        add = float(config.get('value_add', 0.0) or 0.0)
+        df[target_col] = apply_value_transform(numeric, multiplier=multiplier, add=add)
+
+        if multiplier != 1.0 or add != 0.0:
+            print(f"   ✓ Applied value transform: ({source_col} * {multiplier}) + {add}")
+
+        if drop_source and source_col in df.columns and source_col != target_col:
+            df.drop(columns=[source_col], inplace=True)
+
+        return df
     
     def _clean_numeric_column(self, series):
         """
@@ -353,22 +421,7 @@ class AuditRunner:
         - Whitespace: " 3000 " → 3000
         - Currency: $3,000 หรือ ฿3,000 → 3000
         """
-        # แปลงเป็น string
-        s = series.astype(str)
-        
-        # ตรวจสอบวงเล็บ (ค่าลบในระบบบัญชี)
-        is_negative = s.str.contains(r'\(.*\)', regex=True, na=False)
-        
-        # ลบอักขระพิเศษ (เว้น . และ -)
-        s = s.str.replace(r'[,\(\)\s$฿%]', '', regex=True)
-        
-        # แปลงเป็นตัวเลข
-        s = pd.to_numeric(s, errors='coerce').fillna(0)
-        
-        # ใส่เครื่องหมายลบสำหรับค่าที่อยู่ในวงเล็บ
-        s.loc[is_negative] = -s.loc[is_negative].abs()
-        
-        return s
+        return clean_numeric_series(series).fillna(0)
     
     def _run_time_series(self, df, config):
         """รัน Time Series Analysis"""

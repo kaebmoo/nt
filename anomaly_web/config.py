@@ -18,9 +18,9 @@ class Config:
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
     OUTPUT_FOLDER = os.path.join(os.path.dirname(__file__), 'outputs')
     CONFIG_FOLDER = os.path.join(os.path.dirname(__file__), 'configs')
-    MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500 MB max file size
+    MAX_CONTENT_LENGTH = int(os.environ.get('MAX_UPLOAD_MB', 2048)) * 1024 * 1024
     
-    ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
+    ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xlsm'}
     
     # Application
     APP_NAME = 'Anomaly Detection System'

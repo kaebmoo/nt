@@ -54,27 +54,95 @@ def upload():
     # Get metadata
     input_mode = request.form.get('input_mode', 'long')
     description = request.form.get('description', '')
+    upload_id = request.form.get('upload_id') or str(uuid.uuid4())
 
     try:
+        update_upload_progress(upload_id, {
+            'status': 'received',
+            'progress': 1,
+            'message': 'Files received. Preparing upload...'
+        })
+
         # Save file with metadata
         file_info = file_handler.save_uploads(
             files=files,
             input_mode=input_mode,
-            description=description
+            description=description,
+            progress_callback=lambda progress: update_upload_progress(upload_id, progress)
         )
 
         # Store in session
         session['current_file'] = file_info
 
+        update_upload_progress(upload_id, {
+            'status': 'completed',
+            'progress': 100,
+            'message': 'Upload completed',
+            'file_id': file_info['file_id'],
+            'redirect': url_for('preview', file_id=file_info['file_id'])
+        })
+
         # Return JSON response with redirect URL for AJAX
         return jsonify({
             'success': True,
             'redirect': url_for('preview', file_id=file_info['file_id']),
-            'file_id': file_info['file_id']
+            'file_id': file_info['file_id'],
+            'upload_id': upload_id
         })
 
     except Exception as e:
+        update_upload_progress(upload_id, {
+            'status': 'error',
+            'progress': 0,
+            'message': str(e)
+        })
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload-progress/<upload_id>')
+def get_upload_progress(upload_id):
+    """ดึง progress ระหว่าง upload/merge ไฟล์ใหญ่"""
+    progress_path = _upload_progress_path(upload_id)
+    if not os.path.exists(progress_path):
+        return jsonify({
+            'status': 'not_started',
+            'progress': 0,
+            'message': 'Waiting for upload...'
+        })
+    try:
+        with open(progress_path, 'r', encoding='utf-8') as f:
+            return jsonify(json.load(f))
+    except json.JSONDecodeError:
+        return jsonify({
+            'status': 'unknown',
+            'progress': 0,
+            'message': 'Upload progress is not available yet'
+        })
+
+
+def update_upload_progress(upload_id, progress):
+    if not upload_id:
+        return
+
+    progress_path = _upload_progress_path(upload_id)
+    current = {}
+    if os.path.exists(progress_path):
+        try:
+            with open(progress_path, 'r', encoding='utf-8') as f:
+                current = json.load(f)
+        except json.JSONDecodeError:
+            current = {}
+
+    current.update(progress)
+    current['updated_at'] = datetime.now().isoformat()
+
+    with open(progress_path, 'w', encoding='utf-8') as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+
+
+def _upload_progress_path(upload_id):
+    safe_upload_id = secure_filename(upload_id)
+    return os.path.join(app.config['PROGRESS_FOLDER'], f"upload_{safe_upload_id}.json")
 
 @app.route('/preview/<file_id>')
 def preview(file_id):

@@ -6,14 +6,22 @@ from openpyxl.utils import get_column_letter
 try:
     from .anomaly_engine import detect_iqr_anomaly
     from .anomaly_settings import normalize_anomaly_settings
+    from .data_cleaning import apply_date_grain, format_date_label
 except ImportError:
     from anomaly_engine import detect_iqr_anomaly
     from anomaly_settings import normalize_anomaly_settings
+    from data_cleaning import apply_date_grain, format_date_label
+
+
+EXCEL_MAX_ROWS = 1_048_576
+EXCEL_MAX_COLS = 16_384
+
 
 class ExcelReporter:
     def __init__(self, output_file, anomaly_settings=None):
         self.writer = pd.ExcelWriter(output_file, engine='openpyxl')
         self.anomaly_settings = normalize_anomaly_settings(anomaly_settings)
+        self.date_grain = self.anomaly_settings["date_grain"]
         print(f"[Reporter]: Initialized for file: {output_file}")
         
         # กำหนด Style สีต่างๆ
@@ -29,6 +37,60 @@ class ExcelReporter:
         self.font_bold = Font(bold=True)
         self.align_right = Alignment(horizontal='right')
         self.num_format = "#,##0.00"
+
+    def _safe_sheet_name(self, base, part=None):
+        suffix = f"_{part}" if part else ""
+        return f"{base[:31 - len(suffix)]}{suffix}"
+
+    def _write_dataframe_chunked(self, df, sheet_name, index=False):
+        column_count = len(df.columns) + (1 if index else 0)
+        if column_count > EXCEL_MAX_COLS:
+            raise ValueError(
+                f"Excel รองรับได้สูงสุด {EXCEL_MAX_COLS:,} columns ต่อ sheet "
+                f"แต่ '{sheet_name}' มี {column_count:,} columns"
+            )
+
+        max_data_rows = EXCEL_MAX_ROWS - 1  # header ใช้ 1 row
+        needs_split = len(df) > max_data_rows
+        chunks = []
+
+        if df.empty:
+            safe_name = self._safe_sheet_name(sheet_name)
+            df.to_excel(self.writer, sheet_name=safe_name, index=index)
+            return [{'sheet_name': safe_name, 'row_offset': 0, 'row_count': 0}]
+
+        for part, start in enumerate(range(0, len(df), max_data_rows), 1):
+            safe_name = self._safe_sheet_name(sheet_name, part if needs_split else None)
+            chunk = df.iloc[start:start + max_data_rows]
+            chunk.to_excel(self.writer, sheet_name=safe_name, index=index)
+            chunks.append({
+                'sheet_name': safe_name,
+                'row_offset': start,
+                'row_count': len(chunk),
+            })
+
+        if needs_split:
+            print(f"[Reporter]:    Split '{sheet_name}' into {len(chunks)} sheets for Excel row limit.")
+
+        return chunks
+
+    def _previous_change_status(self, row):
+        if not self.anomaly_settings.get("highlight_previous_change", True):
+            return None
+
+        try:
+            pct_change = float(row.get('PCT_DIFF_PREVIOUS', 0))
+        except (TypeError, ValueError):
+            return None
+
+        high = self.anomaly_settings["previous_change_highlight_high_ratio"] * 100
+        low = self.anomaly_settings["previous_change_highlight_low_ratio"] * 100
+
+        if pct_change > high:
+            return "High_Spike"
+        if pct_change < low:
+            return "Low_Spike"
+        return None
 
     def _compute_cell_anomaly(self, value, history, min_history=3):
         """
@@ -104,6 +166,11 @@ class ExcelReporter:
                 ("Low_Spike",       "ยอดตกลงต่ำผิดปกติ (Low Drop)"),
                 ("Negative_Value",  "ยอดติดลบ")
             ]
+            if self.anomaly_settings.get("highlight_previous_change", True):
+                legend_data.extend([
+                    ("High_Spike",  "DIFF/PCT_DIFF_PREVIOUS สูงกว่า threshold ที่ตั้งไว้"),
+                    ("Low_Spike",   "DIFF/PCT_DIFF_PREVIOUS ต่ำกว่า threshold ที่ตั้งไว้")
+                ])
 
         for i, (key, desc) in enumerate(legend_data):
             r = start_row + 1 + i
@@ -129,65 +196,65 @@ class ExcelReporter:
         # ✅ คำนวณ anomaly สำหรับทุก cell
         anomaly_map = self._build_anomaly_map(df_report, date_cols_sorted, min_history=min_history)
         
-        # เขียน DataFrame ลง Excel
         sheet_name = 'Crosstab_Report'
-        df_report.to_excel(self.writer, sheet_name=sheet_name, index=False)
-        
-        ws = self.writer.sheets[sheet_name]
-        
-        header_cells = ws[1]
-        col_map = {cell.value: (cell.column, cell.column_letter) for cell in header_cells}
-        
-        # Loop ทุกแถวเพื่อ format และทาสี
-        for excel_row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row), 2):
-            df_row_idx = excel_row_idx - 2  # แปลง Excel row → DataFrame row index
-            
-            for col_name, (col_idx, col_letter) in col_map.items():
-                cell = ws[f"{col_letter}{excel_row_idx}"]
-                
-                if col_name in date_cols_sorted:
-                    # Format ตัวเลข
-                    cell.number_format = self.num_format
-                    cell.alignment = self.align_right
-                    
-                    # ✅ ทาสีตาม anomaly_map
-                    anomaly_status = anomaly_map.get((df_row_idx, col_name))
-                    if anomaly_status:
-                        if anomaly_status in self.styles:
+        chunks = self._write_dataframe_chunked(df_report, sheet_name, index=False)
+
+        for chunk in chunks:
+            ws = self.writer.sheets[chunk['sheet_name']]
+            header_cells = ws[1]
+            col_map = {cell.value: (cell.column, cell.column_letter) for cell in header_cells}
+
+            # Loop ทุกแถวเพื่อ format และทาสี
+            for excel_row_idx in range(2, ws.max_row + 1):
+                df_row_idx = chunk['row_offset'] + excel_row_idx - 2  # Excel row → DataFrame row index
+                report_row = df_report.iloc[df_row_idx]
+                previous_status = self._previous_change_status(report_row)
+
+                for col_name, (col_idx, col_letter) in col_map.items():
+                    cell = ws[f"{col_letter}{excel_row_idx}"]
+
+                    if col_name in date_cols_sorted:
+                        cell.number_format = self.num_format
+                        cell.alignment = self.align_right
+
+                        anomaly_status = anomaly_map.get((df_row_idx, col_name))
+                        if anomaly_status and anomaly_status in self.styles:
                             cell.fill = self.styles[anomaly_status]
                             if anomaly_status == "Negative_Value":
                                 cell.font = self.font_negative
-                
+
+                    elif col_name == 'ANOMALY_STATUS':
+                        status = cell.value
+                        if status in self.styles:
+                            cell.fill = self.styles[status]
+                            if status == "Negative_Value":
+                                cell.font = self.font_negative
+
+                    elif col_name in ['PCT_CHANGE', 'PCT_DIFF_PREVIOUS']:
+                        cell.number_format = '0.00"%"'
+                        cell.alignment = self.align_right
+                        if col_name == 'PCT_DIFF_PREVIOUS' and previous_status in self.styles:
+                            cell.fill = self.styles[previous_status]
+
+                    elif col_name in ['LATEST_VALUE', 'AVG_HISTORICAL', 'PREVIOUS_VALUE', 'DIFF_PREVIOUS']:
+                        cell.number_format = self.num_format
+                        cell.alignment = self.align_right
+                        if col_name == 'DIFF_PREVIOUS' and previous_status in self.styles:
+                            cell.fill = self.styles[previous_status]
+
+            # จัดความกว้างคอลัมน์
+            for col_name, (idx, letter) in col_map.items():
+                if col_name in dimensions:
+                    ws.column_dimensions[letter].width = 30
+                elif col_name in date_cols_sorted:
+                    ws.column_dimensions[letter].width = 15
                 elif col_name == 'ANOMALY_STATUS':
-                    # ทาสีตามค่าใน column
-                    status = cell.value
-                    if status in self.styles:
-                        cell.fill = self.styles[status]
-                        if status == "Negative_Value":
-                            cell.font = self.font_negative
-                
-                elif col_name == 'PCT_CHANGE':
-                    cell.number_format = '0.00"%"'
-                    cell.alignment = self.align_right
-                elif col_name in ['LATEST_VALUE', 'AVG_HISTORICAL']:
-                    cell.number_format = self.num_format
-                    cell.alignment = self.align_right
+                    ws.column_dimensions[letter].width = 20
+                else:
+                    ws.column_dimensions[letter].width = 18
 
-        # จัดความกว้างคอลัมน์
-        for col_name, (idx, letter) in col_map.items():
-            if col_name in dimensions:
-                ws.column_dimensions[letter].width = 30
-            elif col_name in date_cols_sorted:
-                ws.column_dimensions[letter].width = 15
-            elif col_name == 'ANOMALY_STATUS':
-                ws.column_dimensions[letter].width = 20
-            else:
-                ws.column_dimensions[letter].width = 18
-
-        ws.freeze_panes = f'{get_column_letter(len(dimensions) + 1)}2'
-
-        # เพิ่ม Legend
-        self._add_legend(ws)
+            ws.freeze_panes = f'{get_column_letter(len(dimensions) + 1)}2'
+            self._add_legend(ws)
         
         print(f"[Reporter]:    ✓ Crosstab sheet created with accurate cell-by-cell highlighting")
 
@@ -197,10 +264,11 @@ class ExcelReporter:
             df_log = pd.DataFrame({'Message': ['No Anomalies Found']})
             cols_to_show = ['Message']
         valid_cols = [c for c in cols_to_show if c in df_log.columns]
-        df_log[valid_cols].to_excel(self.writer, sheet_name=sheet_name, index=False)
-        ws = self.writer.sheets[sheet_name]
-        for i, col in enumerate(valid_cols, 1):
-            ws.column_dimensions[get_column_letter(i)].width = 25
+        chunks = self._write_dataframe_chunked(df_log[valid_cols], sheet_name, index=False)
+        for chunk in chunks:
+            ws = self.writer.sheets[chunk['sheet_name']]
+            for i, col in enumerate(valid_cols, 1):
+                ws.column_dimensions[get_column_letter(i)].width = 25
 
     def add_peer_crosstab_sheet(self, df_clean, df_peer_log, group_dims, item_id_col, target_col, date_col):
         """
@@ -225,7 +293,9 @@ class ExcelReporter:
         all_dims = group_dims + [item_id_col]
 
         try:
-            agg_df = df_clean.groupby(all_dims + [date_col])[target_col].sum().reset_index()
+            df_base = df_clean.copy()
+            df_base[date_col] = apply_date_grain(df_base[date_col], self.date_grain)
+            agg_df = df_base.groupby(all_dims + [date_col])[target_col].sum().reset_index()
         except Exception as e:
             print(f"[Reporter]:    ❌ Error grouping data: {e}")
             return
@@ -244,7 +314,7 @@ class ExcelReporter:
 
         # แปลง column names เป็น string YYYY-MM format
         try:
-            crosstab.columns = [col.strftime('%Y-%m') for col in crosstab.columns]
+            crosstab.columns = [format_date_label(col, self.date_grain) for col in crosstab.columns]
         except:
             # ถ้าแปลงไม่ได้ (เช่น อาจเป็น string อยู่แล้ว) ให้ใช้ค่าเดิม
             crosstab.columns = [str(col) for col in crosstab.columns]
@@ -282,7 +352,7 @@ class ExcelReporter:
 
                         # แปลง date เป็น YYYY-MM format
                         if pd.notna(row[date_col]):
-                            date_str = pd.to_datetime(row[date_col]).strftime('%Y-%m')
+                            date_str = format_date_label(row[date_col], self.date_grain)
                             anomaly_map[(dim_key, date_str)] = row.get('ISSUE_DESC', 'Peer_Anomaly')
                     except Exception as e:
                         # Skip แถวที่มีปัญหา
@@ -292,62 +362,63 @@ class ExcelReporter:
 
         # 3. เขียน DataFrame ลง Excel
         sheet_name = 'Peer_Crosstab_Report'
-        df_report.to_excel(self.writer, sheet_name=sheet_name, index=False)
+        chunks = self._write_dataframe_chunked(df_report, sheet_name, index=False)
 
-        ws = self.writer.sheets[sheet_name]
+        for chunk in chunks:
+            ws = self.writer.sheets[chunk['sheet_name']]
 
-        # สร้าง column map
-        header_cells = ws[1]
-        col_map = {cell.value: (cell.column, cell.column_letter) for cell in header_cells}
+            # สร้าง column map
+            header_cells = ws[1]
+            col_map = {cell.value: (cell.column, cell.column_letter) for cell in header_cells}
 
-        # 4. Format และทาสี
-        for excel_row_idx in range(2, ws.max_row + 1):
-            df_row_idx = excel_row_idx - 2  # แปลง Excel row → DataFrame row index
+            # 4. Format และทาสี
+            for excel_row_idx in range(2, ws.max_row + 1):
+                df_row_idx = chunk['row_offset'] + excel_row_idx - 2  # Excel row → DataFrame row index
 
-            # ดึงค่า dimensions จากแถวนี้ (แปลง NaN เป็น 'N/A' ให้ตรงกับ anomaly_map)
-            dim_values = tuple(
-                'N/A' if pd.isna(df_report.iloc[df_row_idx][dim]) else df_report.iloc[df_row_idx][dim]
-                for dim in all_dims
-            )
+                # ดึงค่า dimensions จากแถวนี้ (แปลง NaN เป็น 'N/A' ให้ตรงกับ anomaly_map)
+                dim_values = tuple(
+                    'N/A' if pd.isna(df_report.iloc[df_row_idx][dim]) else df_report.iloc[df_row_idx][dim]
+                    for dim in all_dims
+                )
 
-            for col_name, (col_idx, col_letter) in col_map.items():
-                cell = ws[f"{col_letter}{excel_row_idx}"]
+                for col_name, (col_idx, col_letter) in col_map.items():
+                    cell = ws[f"{col_letter}{excel_row_idx}"]
 
-                # ถ้าเป็น column วันที่
-                if col_name in date_cols_sorted:
-                    # Format ตัวเลข
-                    cell.number_format = self.num_format
-                    cell.alignment = self.align_right
+                    # ถ้าเป็น column วันที่
+                    if col_name in date_cols_sorted:
+                        # Format ตัวเลข
+                        cell.number_format = self.num_format
+                        cell.alignment = self.align_right
 
-                    # ตรวจสอบว่ามี anomaly หรือไม่
-                    anomaly_key = (dim_values, col_name)
-                    if anomaly_key in anomaly_map:
-                        issue_desc = anomaly_map[anomaly_key]
+                        # ตรวจสอบว่ามี anomaly หรือไม่
+                        anomaly_key = (dim_values, col_name)
+                        if anomaly_key in anomaly_map:
+                            issue_desc = anomaly_map[anomaly_key]
 
-                        # ทาสีตาม issue type
-                        # Peer group มักจะเป็น High/Low Outlier
-                        if 'High' in issue_desc or 'Spike' in issue_desc:
-                            cell.fill = self.styles.get('High_Spike', PatternFill(start_color="FFC7CE", fill_type="solid"))
-                        elif 'Low' in issue_desc or 'Drop' in issue_desc:
-                            cell.fill = self.styles.get('Low_Spike', PatternFill(start_color="FFEB9C", fill_type="solid"))
-                        else:
-                            # Default: ใช้สีแดงอ่อนสำหรับ peer anomaly
-                            cell.fill = self.styles.get('High_Spike', PatternFill(start_color="FFC7CE", fill_type="solid"))
+                            # ทาสีตาม issue type
+                            # Peer group มักจะเป็น High/Low Outlier
+                            if 'High' in issue_desc or 'Spike' in issue_desc:
+                                cell.fill = self.styles.get('High_Spike', PatternFill(start_color="FFC7CE", fill_type="solid"))
+                            elif 'Low' in issue_desc or 'Drop' in issue_desc:
+                                cell.fill = self.styles.get('Low_Spike', PatternFill(start_color="FFEB9C", fill_type="solid"))
+                            else:
+                                # Default: ใช้สีแดงอ่อนสำหรับ peer anomaly
+                                cell.fill = self.styles.get('High_Spike', PatternFill(start_color="FFC7CE", fill_type="solid"))
 
-        # 5. จัดความกว้างคอลัมน์
-        for col_name, (idx, letter) in col_map.items():
-            if col_name in all_dims:
-                ws.column_dimensions[letter].width = 25
-            elif col_name in date_cols_sorted:
-                ws.column_dimensions[letter].width = 15
-            else:
-                ws.column_dimensions[letter].width = 18
+            # 5. จัดความกว้างคอลัมน์
+            for col_name, (idx, letter) in col_map.items():
+                if col_name in all_dims:
+                    ws.column_dimensions[letter].width = 25
+                elif col_name in date_cols_sorted:
+                    ws.column_dimensions[letter].width = 15
+                else:
+                    ws.column_dimensions[letter].width = 18
 
-        # 6. Freeze panes
-        ws.freeze_panes = f'{get_column_letter(len(all_dims) + 1)}2'
+            # 6. Freeze panes
+            ws.freeze_panes = f'{get_column_letter(len(all_dims) + 1)}2'
 
-        # 7. เพิ่ม Legend สำหรับ Peer Group
-        self._add_legend(ws, legend_type='peer')
+            # 7. เพิ่ม Legend สำหรับ Peer Group
+            self._add_legend(ws, legend_type='peer')
 
         print(f"[Reporter]:    ✓ Peer Group Crosstab sheet created with {len(anomaly_map)} highlighted cells")
 

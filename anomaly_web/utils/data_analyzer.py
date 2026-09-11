@@ -9,6 +9,11 @@ import numpy as np
 from collections import Counter
 import re
 
+try:
+    from .data_cleaning import blank_mask, clean_numeric_series, numeric_bad_mask, parse_date_series
+except ImportError:
+    from data_cleaning import blank_mask, clean_numeric_series, numeric_bad_mask, parse_date_series
+
 class DataAnalyzer:
     """วิเคราะห์และแนะนำ configuration อัตโนมัติ"""
     
@@ -58,6 +63,15 @@ class DataAnalyzer:
             'unique_count': int(series.nunique()),
             'sample_values': series.dropna().head(5).tolist()
         }
+
+        numeric = clean_numeric_series(series)
+        non_blank_count = int((~blank_mask(series)).sum())
+        valid_numeric_count = int(numeric.notna().sum())
+        col_info['numeric_parse'] = {
+            'valid_count': valid_numeric_count,
+            'invalid_count': int(numeric_bad_mask(series, numeric).sum()),
+            'valid_percentage': round(valid_numeric_count / non_blank_count * 100, 2) if non_blank_count else 0
+        }
         
         # Detect column type
         col_info['detected_type'] = self._detect_column_type(series)
@@ -66,10 +80,10 @@ class DataAnalyzer:
         if col_info['detected_type'] == 'numeric':
             try:
                 col_info['stats'] = {
-                    'min': float(series.min()) if not series.isnull().all() else None,
-                    'max': float(series.max()) if not series.isnull().all() else None,
-                    'mean': float(series.mean()) if not series.isnull().all() else None,
-                    'median': float(series.median()) if not series.isnull().all() else None
+                    'min': float(numeric.min()) if not numeric.isnull().all() else None,
+                    'max': float(numeric.max()) if not numeric.isnull().all() else None,
+                    'mean': float(numeric.mean()) if not numeric.isnull().all() else None,
+                    'median': float(numeric.median()) if not numeric.isnull().all() else None
                 }
             except Exception as e:
                 col_info['stats'] = {'error': str(e)}
@@ -96,42 +110,28 @@ class DataAnalyzer:
         if series.isnull().sum() / len(series) > 0.9:
             return 'mostly_null'
 
-        # Check column name patterns first (more reliable than type inference)
-        # These patterns indicate dimension/categorical data even if numeric
-        dimension_patterns = ['_KEY', '_ID', '_CODE', '_NUMBER', '_NO', 'KEY_', 'ID_', 'CODE_']
-        is_likely_dimension = any(pattern in col_upper for pattern in dimension_patterns)
+        is_likely_dimension = self._is_dimension_name(col_upper)
+        is_measure = self._is_measure_name(col_upper)
+        is_date_keyword = self._is_date_name(col_upper)
 
-        # Exclude actual date/time columns from dimension detection
-        date_keywords = ['YEAR', 'MONTH', 'DAY', 'DATE', 'TIME', 'PERIOD']
-        is_date_keyword = any(keyword == col_upper or col_upper.startswith(keyword + '_') for keyword in date_keywords)
-
-        # Try numeric
-        is_numeric = False
-        try:
-            # Clean and convert
-            cleaned = series.astype(str).str.replace(',', '').str.replace('(', '-').str.replace(')', '')
-            pd.to_numeric(cleaned, errors='raise')
-            is_numeric = True
-        except:
-            pass
-
-        # If it's numeric but looks like a dimension key/code
-        if is_numeric and is_likely_dimension and not is_date_keyword:
-            # Check cardinality - if many unique values, likely a dimension
-            unique_ratio = series.nunique() / len(series)
-            if unique_ratio > 0.05:  # At least 5% unique values
-                return 'categorical'  # Treat as dimension
-            elif series.nunique() < 1000:  # Reasonable number of categories
-                return 'categorical'
-
-        # If numeric and not a dimension pattern, return numeric
-        if is_numeric:
-            return 'numeric'
-
-        # Try date (but not if it's a KEY/ID/CODE column ที่ไม่ได้ขึ้นต้นด้วยคำว่าวันที่)
-        # เช่น TIME_KEY_DATE ติด pattern '_KEY' แต่เป็นวันที่จริง (01JAN2026)
-        if (not is_likely_dimension or is_date_keyword) and self._is_date_column(series):
+        # Try date first only when the name supports it. This avoids treating YEAR=2026 as a date.
+        if (is_date_keyword or not is_likely_dimension) and self._is_date_column(series):
             return 'date'
+
+        numeric = clean_numeric_series(series)
+        non_blank = ~blank_mask(series)
+        non_blank_count = int(non_blank.sum())
+        numeric_ratio = numeric[non_blank].notna().sum() / non_blank_count if non_blank_count else 0
+        is_numeric = numeric_ratio >= 0.75
+
+        if is_numeric:
+            if is_likely_dimension and not self._is_strong_measure_name(col_upper):
+                return 'categorical'
+            if is_measure:
+                return 'numeric'
+            if series.nunique() <= 50:
+                return 'categorical'
+            return 'numeric'
 
         # Check if ID (mostly unique) - for text-based IDs
         if series.nunique() / len(series) > 0.95:
@@ -150,24 +150,24 @@ class DataAnalyzer:
     
     def _is_date_column(self, series):
         """ตรวจสอบว่าเป็น column วันที่หรือไม่"""
-        try:
-            pd.to_datetime(series.dropna().head(100), errors='raise')
-            return True
-        except:
-            pass
-        
-        # Check for date-like patterns
         sample = series.dropna().head(100).astype(str)
         date_patterns = [
             r'\d{4}-\d{2}-\d{2}',  # 2024-01-01
             r'\d{2}/\d{2}/\d{4}',  # 01/01/2024
+            r'\d{2}\.\d{2}\.\d{4}', # 01.02.2024
             r'\d{4}/\d{2}',         # 2024/01
             r'\d{4}-\d{2}',         # 2024-01
+            r'\d{8}',               # 20240101
+            r'\d{1,2}[A-Za-z]{3}\d{4}', # 01JAN2024
         ]
         
         for pattern in date_patterns:
-            if sample.str.match(pattern).sum() / len(sample) > 0.8:
+            if len(sample) and sample.str.fullmatch(pattern, flags=re.IGNORECASE).sum() / len(sample) >= 0.6:
                 return True
+
+        numeric = pd.to_numeric(series, errors='coerce').dropna().head(100)
+        if not numeric.empty and numeric.between(20000, 80000).mean() >= 0.8:
+            return True
         
         return False
     
@@ -178,15 +178,50 @@ class DataAnalyzer:
         formats = {
             r'\d{4}-\d{2}-\d{2}': '%Y-%m-%d',
             r'\d{2}/\d{2}/\d{4}': '%d/%m/%Y',
+            r'\d{2}\.\d{2}\.\d{4}': '%d.%m.%Y',
             r'\d{4}/\d{2}': '%Y/%m',
             r'\d{4}-\d{2}': '%Y-%m',
+            r'\d{8}': '%Y%m%d',
+            r'\d{1,2}[A-Za-z]{3}\d{4}': '%d%b%Y',
         }
         
         for pattern, fmt in formats.items():
-            if sample.str.match(pattern).sum() > 0:
+            if sample.str.fullmatch(pattern, flags=re.IGNORECASE).sum() > 0:
                 return fmt
         
         return 'unknown'
+
+    def _is_dimension_name(self, col_upper):
+        patterns = [
+            '_KEY', '_ID', '_CODE', '_NUMBER', '_NO', 'KEY_', 'ID_', 'CODE_',
+            'ACCOUNT', 'DOCUMENT', 'DOC', 'INVOICE', 'SEQ', 'PK',
+            'CENTER', 'DEPARTMENT', 'DIVISION', 'GROUP', 'TYPE', 'CATEGORY',
+            'PRODUCT', 'CUSTOMER', 'SEGMENT', 'GL', 'BUSA', 'BP', 'PERIOD',
+            'บัญชี', 'เลข', 'รหัส', 'เอกสาร', 'ใบแจ้งหนี้', 'ลำดับ',
+            'เซกเมนต์', 'ผลิตภัณฑ์', 'ผ.ภัณฑ์', 'บริการ', 'ประเภท', 'ประเภทราย',
+            'กลุ่ม', 'ศูนย์', 'ลูกค้า', 'งวด'
+        ]
+        return any(pattern in col_upper for pattern in patterns)
+
+    def _is_measure_name(self, col_upper):
+        patterns = [
+            'VALUE', 'AMOUNT', 'EXPENSE', 'REVENUE', 'COST', 'SALES', 'PRICE',
+            'BALANCE', 'TOTAL', 'NET', 'GROSS',
+            'จำนวนเงิน', 'จำนวนสกุลเงิน', 'ยอด', 'มูลค่า', 'รายได้', 'ค่าใช้จ่าย', 'เงิน'
+        ]
+        return any(pattern in col_upper for pattern in patterns)
+
+    def _is_strong_measure_name(self, col_upper):
+        patterns = [
+            'VALUE', 'AMOUNT', 'REVENUE', 'EXPENSE', 'SALES', 'PRICE',
+            'BALANCE', 'TOTAL', 'NET', 'GROSS',
+            'จำนวนเงิน', 'จำนวนสกุลเงิน', 'ยอด', 'มูลค่า', 'รายได้', 'ค่าใช้จ่าย', 'เงิน'
+        ]
+        return any(pattern in col_upper for pattern in patterns)
+
+    def _is_date_name(self, col_upper):
+        patterns = ['YEAR', 'MONTH', 'DAY', 'DATE', 'TIME', 'PERIOD', 'POSTING', 'PSTNG', 'วันที่', 'ว/ท']
+        return any(pattern in col_upper for pattern in patterns)
     
     def _recommend_long_format(self, df, columns_info):
         """แนะนำ configuration สำหรับ Long Format"""
@@ -207,6 +242,14 @@ class DataAnalyzer:
                 date_format = info.get('date_format', '')
                 if date_format in ['%Y-%m', '%Y/%m']:
                     year_month_candidates.append(col_name)
+
+        date_candidates = [
+            col_name for col_name, info in columns_info.items()
+            if info['detected_type'] == 'date' and col_name not in year_month_candidates
+        ]
+        preferred_date_column = None
+        if date_candidates:
+            preferred_date_column = max(date_candidates, key=self._date_column_score)
 
         for col_name, info in columns_info.items():
             col_upper = col_name.upper()
@@ -254,28 +297,28 @@ class DataAnalyzer:
             # Detect DATE column (including YYYY-MM-DD, YYYY-MM formats)
             if info['detected_type'] == 'date':
                 if not recommendations['date_column']:  # เอาตัวแรกที่เจอ
-                    recommendations['date_column'] = col_name
+                    recommendations['date_column'] = preferred_date_column or col_name
                 continue
 
             # Detect VALUE columns (only pure numeric, not KEY/ID/CODE)
             # Exclude columns with dimension patterns
-            dimension_patterns = ['_KEY', '_ID', '_CODE', '_NUMBER', '_NO', 'KEY_', 'ID_', 'CODE_']
-            is_dimension_pattern = any(pattern in col_upper for pattern in dimension_patterns)
+            is_dimension_pattern = self._is_dimension_name(col_upper)
 
-            if info['detected_type'] == 'numeric' and not is_dimension_pattern:
-                value_keywords = ['VALUE', 'AMOUNT', 'EXPENSE', 'REVENUE', 'COST', 'SALES', 'PRICE', 'BALANCE', 'TOTAL', 'NET', 'GROSS']
-                if any(kw in col_upper for kw in value_keywords):
+            if info['detected_type'] == 'numeric' and (not is_dimension_pattern or self._is_strong_measure_name(col_upper)):
+                if self._is_strong_measure_name(col_upper):
                     recommendations['value_columns'].append({
                         'name': col_name,
                         'confidence': 'high',
-                        'stats': info.get('stats', {})
+                        'stats': info.get('stats', {}),
+                        'numeric_parse': info.get('numeric_parse', {})
                     })
                 else:
                     # Even without keywords, if it's numeric and not a dimension pattern, it's likely a value
                     recommendations['value_columns'].append({
                         'name': col_name,
                         'confidence': 'medium',
-                        'stats': info.get('stats', {})
+                        'stats': info.get('stats', {}),
+                        'numeric_parse': info.get('numeric_parse', {})
                     })
                 continue
 
@@ -302,6 +345,19 @@ class DataAnalyzer:
                 recommendations['id_columns'].append(col_name)
 
         return recommendations
+
+    def _date_column_score(self, col_name):
+        col_upper = str(col_name).upper()
+        score = 0
+        if any(key in col_upper for key in ['PSTNG', 'POSTING', 'POST DATE', 'POSTED']):
+            score += 100
+        if 'TIME_KEY_DATE' in col_upper:
+            score += 80
+        if any(key in col_upper for key in ['DATE', 'วันที่', 'ว/ท']):
+            score += 10
+        if any(key in col_upper for key in ['DOCUMENT', 'DOC', 'เอกสาร']):
+            score -= 30
+        return score
     
     def _recommend_crosstab_format(self, df, columns_info):
         """แนะนำ configuration สำหรับ Crosstab Format"""

@@ -4,12 +4,36 @@ import io
 import shutil
 import tempfile
 
+import pandas as pd
 from werkzeug.datastructures import FileStorage
 from utils.file_handler import FileHandler
 
 
 def fs(name, body):
     return FileStorage(io.BytesIO(body), filename=name)
+
+
+class NoSeekable:
+    def __init__(self, inner):
+        self.inner = inner
+
+    def read(self, *args):
+        return self.inner.read(*args)
+
+    def seek(self, *args):
+        return self.inner.seek(*args)
+
+    def tell(self):
+        return self.inner.tell()
+
+
+def xlsx_fs(name, df, no_seekable=False):
+    body = io.BytesIO()
+    df.to_excel(body, index=False)
+    body.seek(0)
+    if no_seekable:
+        body = NoSeekable(body)
+    return FileStorage(body, filename=name)
 
 
 def main():
@@ -39,10 +63,22 @@ def main():
     assert one['original_filename'] == 'solo.csv'
     assert 'source_files' not in one
 
-    # ปนไฟล์ที่ไม่ใช่ csv -> error
+    # รวม Excel -> แปลงเป็น CSV รวมหนึ่งไฟล์
+    progress_events = []
+    info_xlsx = fh.save_uploads([
+        xlsx_fs('jan.xlsx', pd.DataFrame({'DATE': ['01.01.2026'], 'VALUE': [10]}), no_seekable=True),
+        xlsx_fs('feb.xlsx', pd.DataFrame({'DATE': ['01.02.2026'], 'VALUE': [20]}), no_seekable=True),
+    ], input_mode='long', progress_callback=progress_events.append)
+    text = open(info_xlsx['filepath'], encoding='utf-8-sig').read().splitlines()
+    assert text == ['DATE,VALUE', '01.01.2026,10', '01.02.2026,20'], text
+    assert info_xlsx['original_filename'] == 'jan_merged2.csv', info_xlsx['original_filename']
+    assert any('Excel file 1/2' in event['message'] for event in progress_events), progress_events
+    assert progress_events[-1]['status'] == 'completed'
+
+    # ปนชนิดไฟล์ -> error
     try:
         fh.save_uploads([fs('a.csv', b'A\n1\n'), fs('b.xlsx', b'PK\x03\x04')], input_mode='long')
-        raise AssertionError('ควร raise เมื่อมีไฟล์ที่ไม่ใช่ CSV')
+        raise AssertionError('ควร raise เมื่อชนิดไฟล์ปนกัน')
     except ValueError:
         pass
 

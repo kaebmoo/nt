@@ -6,6 +6,7 @@ Converts Crosstab/Pivot-Table data into a long format.
 import pandas as pd
 
 from .csv_io import read_csv_auto
+from .data_cleaning import parse_date_series
 
 class CrosstabConverter:
     """
@@ -23,7 +24,7 @@ class CrosstabConverter:
         self.input_file = input_file
         self.output_file = output_file
 
-    def convert(self, sheet_name=0, skiprows=0, id_vars=None, value_name='VALUE', mode='auto'):
+    def convert(self, sheet_name=0, skiprows=0, id_vars=None, value_name='VALUE', mode='auto', date_parse_mode='auto'):
         """
         Performs the conversion from crosstab to long format.
 
@@ -55,13 +56,12 @@ class CrosstabConverter:
         df_long = pd.melt(df, id_vars=id_vars, var_name='PERIOD', value_name=value_name)
 
         # 3. Process Period Column based on mode
-        if mode == 'date' or (mode == 'auto' and self._is_date_like(df_long['PERIOD'])):
+        if mode == 'date' or (mode == 'auto' and self._is_date_like(df_long['PERIOD'], date_parse_mode)):
             try:
                 # Attempt to convert to YYYY-MM-01 format
-                df_long['DATE'] = pd.to_datetime(df_long['PERIOD'], errors='coerce').dt.strftime('%Y-%m-01')
-                # Drop rows where conversion failed
-                df_long = df_long.dropna(subset=['DATE'])
-                df_long['DATE'] = pd.to_datetime(df_long['DATE'])
+                parsed_period = parse_date_series(df_long['PERIOD'], date_parse_mode)
+                df_long['DATE'] = parsed_period.dt.strftime('%Y-%m-01')
+                df_long['DATE'] = pd.to_datetime(df_long['DATE'], errors='coerce')
             except Exception:
                 # Fallback for non-standard date formats
                 df_long.rename(columns={'PERIOD': 'DATE'}, inplace=True)
@@ -75,7 +75,7 @@ class CrosstabConverter:
 
         return df_long
 
-    def _is_date_like(self, series):
+    def _is_date_like(self, series, date_parse_mode='auto'):
         """
         Heuristically checks if a series contains date-like strings.
         """
@@ -85,7 +85,7 @@ class CrosstabConverter:
         
         # Check if a good portion can be parsed as dates
         try:
-            parsed_count = pd.to_datetime(sample, errors='coerce').notna().sum()
+            parsed_count = parse_date_series(pd.Series(sample), date_parse_mode).notna().sum()
             if parsed_count / len(sample) > 0.5:
                 return True
         except Exception:

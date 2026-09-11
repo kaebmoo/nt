@@ -19,11 +19,13 @@ def main():
         "peer_contamination": "20",
         "peer_zscore_threshold": "10",
         "peer_min_group_size": "6",
+        "date_grain": "year",
     })
     assert settings["min_change_ratio"] == 0.20
     assert settings["constant_change_ratio"] == 0.25
     assert settings["peer_contamination"] == 0.20
     assert settings["peer_min_group_size"] == 6
+    assert settings["date_grain"] == "year"
 
     row = pd.Series([100, 100, 100, 124])
     assert detect_iqr_anomaly(124, [100, 100, 100], 3)[0] == "Spike_vs_Constant"
@@ -64,6 +66,7 @@ def main():
         "run_time_series_analysis": True,
         "run_peer_group_analysis": False,
         "min_change_ratio": "20",
+        "date_grain": "month",
     }
     cm.save_config("right", config.copy())
     assert cm.load_config("right")["file_id"] == "right"
@@ -71,6 +74,18 @@ def main():
     template = cm.load_template("T")
     assert "file_id" not in template
     assert template["min_change_ratio"] == 0.20
+    assert template["date_grain"] == "month"
+    crosstab_only = {
+        "input_mode": "crosstab",
+        "crosstab_dimensions": ["GROUP"],
+        "crosstab_id_vars": ["GROUP"],
+        "crosstab_value_name": "AMOUNT",
+        "run_crosstab_report": True,
+        "run_time_series_analysis": False,
+        "run_peer_group_analysis": False,
+    }
+    assert cm.validate_config(crosstab_only)["valid"]
+    assert cm.normalize_config(crosstab_only)["target_col"] == "AMOUNT"
     shutil.rmtree(tmp)
 
     print("OK")
