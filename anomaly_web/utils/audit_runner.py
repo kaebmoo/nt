@@ -433,7 +433,7 @@ class AuditRunner:
             target_col=config.get('target_col', 'VALUE'),
             date_col=config.get('date_col_name', '__date_col__'),
             dimensions=config.get('audit_ts_dimensions', []),
-            window=config.get('audit_ts_window', 6)
+            window=config.get('audit_ts_window', 3)
         )
         
         # กรองเฉพาะปัญหาสำคัญ

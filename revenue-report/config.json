@@ -19,11 +19,11 @@
     }
   },
   
-  "processing_year": "2026",
+  "processing_year": "2025",
   
   "processing_months": {
-    "fi_current_month": 2,
-    "etl_end_month": 2
+    "fi_current_month": 12,
+    "etl_end_month": 12
   },
 
   "fi_module": {
@@ -126,7 +126,7 @@
         "YEAR", "MONTH", "CUSTOMER_GROUP_KEY", "PRODUCT_KEY",
         "SUB_PRODUCT_KEY", "GL_CODE", "COST_CENTER", "REVENUE_VALUE"
       ],
-      "fi_statement_file": "/Users/seal/Documents/NT/Report/fi/งบกำไรขาดทุนงวดเดือนและยอดสะสมสิ้นสุดวันที่ 28 กุมภาพันธ์ 2569  เอกสารแนบ 3.xlsx",
+      "fi_statement_file": "/Users/seal/Documents/NT/Report/fi/งบการเงิน ณ วันที่ 31 ธันวาคม 2568 (ก่อนตรวจสอบ)  เอกสารแนบ 1.xlsx",
       "fi_statement_dir": "/Users/seal/Documents/NT/Report/fi"
     },
     

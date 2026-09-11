@@ -97,7 +97,7 @@ class ConfigManager:
                 except (ValueError, TypeError):
                     # Use defaults
                     if field == 'audit_ts_window':
-                        config[field] = 6
+                        config[field] = 3
                     elif field == 'crosstab_min_history':
                         config[field] = 3
                     elif field == 'crosstab_skiprows':
