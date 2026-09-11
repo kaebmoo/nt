@@ -212,6 +212,29 @@ Rolling  (window=3)    [         95 105 120]   3 ค่า   Q1=100   Q3=112.5  
 
 รั้วล่างติดลบเพราะ G ดึง std ให้กว้าง กลุ่มนี้จึงไม่มีทางเกิด Low Outlier ในงวดเดียวกันได้ นี่คือข้อจำกัดของ Z-score เมื่อกลุ่มมีค่าสุดโต่งฝั่งเดียว
 
+## ลำดับการรันจริง
+
+ข้อ 1 ไม่ใช่ขั้นตอน แต่เป็น **กติกา** (`detect_iqr_anomaly`) ที่ชั้นอื่นหยิบไปใช้ ข้อ 3 ไม่ได้เรียกฟังก์ชันนี้ตรง ๆ แต่เขียนเงื่อนไขชุดเดียวกันใหม่แบบ vectorized ด้วย `np.select` ต่างกันแค่ history มาจาก rolling window
+
+ลำดับที่ [audit_runner.py](../../../nt/anomaly_web/utils/audit_runner.py) รันคือ
+
+```
+df_clean (ข้อมูลที่ทำความสะอาดแล้ว ตัวเดียวกัน ส่งเข้าทุก step)
+   │
+   ├─ Step 3  Time Series Rolling   (ข้อ 3)  ──▶ df_ts_log      → sheet audit log
+   │
+   ├─ Step 4  Peer Group ISO        (ข้อ 4)  ──▶ df_peer_log    → sheet peer log
+   │
+   ├─ Step 5  Crosstab Report       (ข้อ 2)
+   │            ├─ CrosstabGenerator  → เรียกกติกาข้อ 1 กับงวดล่าสุด  → ANOMALY_STATUS
+   │            └─ reporter ทาสีทุกช่อง → เรียกกติกาข้อ 1 ซ้ำทีละช่อง (expanding window)
+   │
+   └─ Step 6  Peer Crosstab sheet   (จาก df_peer_log)
+```
+
+- ทุก step **เป็นอิสระต่อกัน** ผลของ step ก่อนไม่ได้ป้อนเข้า step ถัดไป ปิดข้อ 3 ทิ้ง ข้อ 2 ก็ให้ผลเหมือนเดิม
+- `df_ts_log` ถูกส่งเข้า `add_crosstab_sheet` พร้อมคอมเมนต์ว่า "เพื่อช่วยทาสี" แต่ในฟังก์ชันไม่ได้ใช้พารามิเตอร์นั้นเลย สีในตาราง crosstab มาจากการคำนวณกติกาข้อ 1 ใหม่ทั้งหมด จึงอาจไม่ตรงกับ log ของข้อ 3
+
 ## พารามิเตอร์ที่ปรับได้ ([anomaly_settings.py](../../../nt/anomaly_web/utils/anomaly_settings.py))
 
 | ค่า | เริ่มต้น | ใช้ใน |
